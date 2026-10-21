@@ -5,6 +5,7 @@
    ========================================================== */
 
 import { PLACEMENT, LESSONS, UOE, DICTATIONS, LISTENINGS, WRITING_TASKS, SPEAKING_PARTS, VOCAB } from './data.js';
+import { dateKey, parseDate, addDays, daysBetween, buildPlan as buildPlanFor, weekForDate, CHAT_SESSIONS, DEFAULT_SCHEDULE, weeklyMinutes, grammarFocus } from './plan.js';
 import { MODELS, DEFAULT_MODEL, chat, askJson, tutorSystem, writingSystem, WRITING_SCHEMA, EXERCISES_SCHEMA, READING_SCHEMA } from './ai.js';
 
 /* ==========================================================
@@ -15,7 +16,7 @@ const STORAGE_KEY = 'academia.v1';
 
 function freshState() {
   return {
-    profile: null, // { name, examDate, startDate, minutesPerDay, level }
+    profile: null, // { name, examDate, startDate, level, schedule }
     settings: { apiKey: '', model: DEFAULT_MODEL, voiceURI: '', rate: 0.95, autoSpeak: true },
     log: [], // actividades hechas: { date, kind, score (0-1 o null), minutes, detail }
     tests: [], // test de nivel, evaluaciones y simulacros
@@ -61,30 +62,6 @@ function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// Fechas en hora local con formato AAAA-MM-DD (así "hoy" es tu hoy, no el de Londres)
-function dateKey(d = new Date()) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-function parseDate(key) {
-  const [y, m, d] = key.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
-function addDays(d, n) {
-  const r = new Date(d);
-  r.setDate(r.getDate() + n);
-  return r;
-}
-function daysBetween(a, b) {
-  return Math.round((parseDate(dateKey(b)) - parseDate(dateKey(a))) / 86400000);
-}
-function mondayOf(d) {
-  const r = parseDate(dateKey(d));
-  const wd = (r.getDay() + 6) % 7; // lunes = 0
-  return addDays(r, -wd);
-}
 function fmtDate(d, opts = { day: 'numeric', month: 'short' }) {
   return d.toLocaleDateString('es-ES', opts);
 }
@@ -161,19 +138,15 @@ function currentLevel() {
    4. Cronograma
    ========================================================== */
 
-// Qué se hace cada día de la semana (0 = domingo)
-const DAY_TEMPLATE = {
-  1: ['lesson', 'vocab'],
-  2: ['uoe', 'dictation'],
-  3: ['writing'],
-  4: ['listening', 'uoe4'],
-  5: ['speaking', 'vocab'],
-  6: ['review', 'reading'],
-  0: ['vocab']
-};
+// Tu horario (se cambia en ⚙️ Ajustes)
+function schedule() {
+  return { ...DEFAULT_SCHEDULE, ...((state.profile && state.profile.schedule) || {}) };
+}
 
 const KIND_INFO = {
   lesson: { emoji: '📚', label: 'Clase', minutes: 25 },
+  lesson2: { emoji: '📚', label: 'Segunda clase de la semana', minutes: 25 },
+  tutorlesson: { emoji: '👩‍🏫', label: 'Clase particular con el profesor IA', minutes: 30 },
   vocab: { emoji: '🃏', label: 'Vocabulario (10 tarjetas)', minutes: 10 },
   uoe: { emoji: '🧩', label: 'Use of English', minutes: 15 },
   uoe4: { emoji: '🔁', label: 'Key word transformations', minutes: 15 },
@@ -181,59 +154,25 @@ const KIND_INFO = {
   listening: { emoji: '👂', label: 'Listening', minutes: 15 },
   reading: { emoji: '📖', label: 'Reading', minutes: 20 },
   writing: { emoji: '✍️', label: 'Writing', minutes: 45 },
+  writing2: { emoji: '✍️', label: 'Writing extra', minutes: 45 },
   speaking: { emoji: '🗣️', label: 'Speaking con el tutor', minutes: 15 },
   review: { emoji: '🔄', label: 'Repaso de la semana', minutes: 20 },
   eval: { emoji: '📝', label: 'Evaluación mensual', minutes: 40 },
   mock: { emoji: '🏁', label: 'Simulacro de examen', minutes: 90 },
-  placement: { emoji: '🎯', label: 'Test de nivel', minutes: 20 }
+  placement: { emoji: '🎯', label: 'Test de nivel', minutes: 20 },
+  drill: { emoji: '💬', label: 'Sesión de gramática en el Chat', minutes: 15 },
+  claudeclass: { emoji: '👩‍🏫', label: 'Clase con Claude', minutes: 30 }
 };
 
+// Contenido de las dos clases de 1 h 30 entre semana (A = primera, B = segunda)
+const CLASS_A = ['lesson', 'uoe', 'dictation', 'listening', 'speaking', 'vocab'];
+const CLASS_B = ['writing', 'uoe4', 'reading', 'vocab'];
+// Fin de semana: unas 2 h de clase y el resto de ejercicios, hasta tus 4 h
+const WEEKEND_CLASS = ['review', 'lesson2', 'claudeclass', 'speaking', 'listening', 'vocab'];
+const WEEKEND_EXERCISES = ['uoe', 'uoe', 'uoe', 'uoe4', 'dictation', 'reading', 'writing2', 'vocab'];
+
 function buildPlan() {
-  const p = state.profile;
-  if (!p) return null;
-  const start = mondayOf(parseDate(p.startDate));
-  const exam = parseDate(p.examDate);
-  const totalWeeks = Math.max(1, Math.ceil((daysBetween(start, exam) + 1) / 7));
-
-  // Reparto de fases: si ya tienes C1, se dedica más tiempo a técnica de examen
-  const lvl = p.level || 'B2';
-  const f1 = lvl === 'C1' || lvl === 'C2' ? 0.2 : lvl === 'B2' ? 0.35 : 0.45;
-  const p1 = Math.max(1, Math.round(totalWeeks * f1));
-  const p3 = totalWeeks > 3 ? Math.max(1, Math.round(totalWeeks * 0.25)) : 0;
-  const p2 = Math.max(0, totalWeeks - p1 - p3);
-  const lessonWeeks = p1 + p2;
-
-  const writingCycle = ['essay1', 'report1', 'essay2', 'proposal1', 'review1', 'essay3', 'letter1', 'email1'];
-  const weeks = [];
-  for (let i = 0; i < totalWeeks; i++) {
-    const wStart = addDays(start, i * 7);
-    const phase = i < p1 ? 1 : i < p1 + p2 ? 2 : 3;
-    let lessons = [];
-    if (i < lessonWeeks) {
-      const a = Math.floor((i * LESSONS.length) / lessonWeeks);
-      const b = Math.floor(((i + 1) * LESSONS.length) / lessonWeeks);
-      lessons = LESSONS.slice(a, Math.max(b, a + 1)).map((l) => l.id);
-    }
-    const isLast = i === totalWeeks - 1;
-    let test = null;
-    if (!isLast) {
-      if (phase === 3 && (i - (p1 + p2)) % 2 === 1) test = 'mock';
-      else if (phase !== 3 && i > 0 && (i + 1) % 4 === 0) test = 'eval';
-    }
-    weeks.push({
-      index: i,
-      start: wStart,
-      end: addDays(wStart, 6),
-      phase,
-      lessons,
-      writing: writingCycle[i % writingCycle.length],
-      speaking: SPEAKING_PARTS[i % SPEAKING_PARTS.length].id,
-      uoePart: (i % 3) + 1,
-      test,
-      isLast
-    });
-  }
-  return { start, exam, totalWeeks, p1, p2, p3, weeks };
+  return buildPlanFor(state.profile);
 }
 
 const PHASES = {
@@ -242,64 +181,128 @@ const PHASES = {
   3: { name: 'Fase 3 · Técnica de examen', desc: 'Simulacros cronometrados, repaso de puntos débiles y estrategia.' }
 };
 
-function weekForDate(plan, d) {
-  if (!plan) return null;
-  const idx = Math.floor(daysBetween(plan.start, d) / 7);
-  return plan.weeks[idx] || null;
+function isWeekend(d) {
+  return d.getDay() === 0 || d.getDay() === 6;
 }
 
-// Tareas de un día concreto según el cronograma
-function tasksForDate(d) {
+// Qué toca un día concreto. Devuelve { tasks, from, to, weekend, goal }:
+// from/to es el rango de fechas en el que cuentan las actividades
+// (un día, o sábado+domingo juntos si es fin de semana).
+function dayPlan(d) {
   const plan = buildPlan();
-  if (!plan) return [];
   const key = dateKey(d);
+  const empty = { tasks: [], from: key, to: key, weekend: false, goal: 0 };
+  if (!plan) return empty;
   if (!state.tests.some((t) => t.type === 'placement')) {
-    return [{ kind: 'placement', label: 'Haz el test de nivel', action: () => startPlacement() }];
+    return { ...empty, tasks: [{ kind: 'placement', label: 'Haz el test de nivel', minutes: 20, emoji: '🎯', action: () => startPlacement(), key: key + ':placement' }] };
   }
   const week = weekForDate(plan, d);
-  if (!week) return [];
+  if (!week) return empty;
   if (key === state.profile.examDate) {
-    return [{ kind: 'exam', label: '¡Día del examen! Descansa, desayuna bien y confía en tu preparación.', action: null }];
+    return { ...empty, tasks: [{ kind: 'exam', label: '¡Día del examen! Descansa, desayuna bien y confía en tu preparación.', action: null, key: key + ':exam' }] };
   }
-  let kinds = DAY_TEMPLATE[d.getDay()].slice();
-  if (week.isLast) kinds = d.getDay() === 0 ? ['vocab'] : ['vocab', 'speaking'];
-  if (d.getDay() === 6 && week.test) kinds = [week.test];
-  if (week.phase === 3 && d.getDay() === 1) kinds = ['uoe', 'vocab'];
+  const sch = schedule();
+  const sections = [];
 
-  return kinds.map((kind) => {
-    const info = KIND_INFO[kind];
-    let label = info.label;
-    let action = () => openKind(kind, week);
-    if (kind === 'lesson' && week.lessons.length) {
-      const l = LESSONS.find((x) => x.id === week.lessons[0]);
-      label = `Clase: ${l.title}`;
-      if (week.lessons.length > 1) label += ` (+${week.lessons.length - 1} más esta semana)`;
-    }
-    if (kind === 'writing') {
-      const t = WRITING_TASKS.find((x) => x.id === week.writing);
-      label = `Writing: ${t.genre}`;
-    }
-    if (kind === 'speaking') {
-      const sp = SPEAKING_PARTS.find((x) => x.id === week.speaking);
-      label = `Speaking · ${sp.name}`;
-    }
-    if (kind === 'uoe') label = `Use of English · Part ${week.uoePart}`;
-    return { kind, label, minutes: info.minutes, emoji: info.emoji, action, key: `${key}:${kind}` };
-  });
+  if (isWeekend(d)) {
+    const sat = addDays(week.start, 5);
+    const from = dateKey(sat);
+    const to = dateKey(addDays(sat, 1));
+    let cls = WEEKEND_CLASS.slice();
+    let ex = WEEKEND_EXERCISES.slice();
+    if (week.lessons.length < 2) cls = cls.filter((k) => k !== 'lesson2');
+    if (week.test) ex = [week.test, ...ex.slice(0, week.test === 'mock' ? 3 : 5)];
+    if (week.isLast) { cls = ['review', 'speaking']; ex = ['vocab', 'listening']; }
+    const clsMin = cls.reduce((acc, k) => acc + KIND_INFO[k].minutes, 0);
+    sections.push({ title: `👩‍🏫 Clase de fin de semana (~${fmtMin(clsMin)})`, kinds: cls });
+    sections.push({ title: '🏋️ Ejercicios (hasta completar tus horas)', kinds: ex });
+    return { tasks: makeTasks(sections, week, `w${week.index}`), from, to, weekend: true, goal: sch.weekendMinutes };
+  }
+
+  const wa = sch.chat && CHAT_SESSIONS[d.getDay()];
+  if (wa) sections.push({ title: '💬 Chat', kinds: ['drill'], wa });
+  const idx = sch.classDays.slice().sort().indexOf(d.getDay());
+  if (idx !== -1) {
+    let kinds = idx % 2 === 0 ? CLASS_A : CLASS_B;
+    if (week.isLast) kinds = ['vocab', 'speaking'];
+    sections.push({ title: `📚 Clase (${sch.classMinutes} min)`, kinds });
+  }
+  const goal = (wa ? wa.minutes : 0) + (idx !== -1 ? sch.classMinutes : 0);
+  return { tasks: makeTasks(sections, week, key), from: key, to: key, weekend: false, goal };
 }
 
-function isTaskDone(task, d) {
-  if (state.manualDone[task.key]) return true;
-  const key = dateKey(d);
-  const map = { review: ['lesson', 'review'], eval: ['eval'], mock: ['mock'], placement: ['placement'] };
-  const kinds = map[task.kind] || [task.kind];
-  if (task.kind === 'placement') return state.tests.some((t) => t.type === 'placement');
-  return state.log.some((e) => e.date === key && kinds.includes(e.kind));
+function makeTasks(sections, week, keyBase) {
+  const tasks = [];
+  sections.forEach((sec) => {
+    sec.kinds.forEach((kind, i) => {
+      const info = KIND_INFO[kind];
+      let label = info.label;
+      let minutes = info.minutes;
+      if ((kind === 'lesson' || kind === 'lesson2') && week.lessons.length) {
+        const l = LESSONS.find((x) => x.id === week.lessons[kind === 'lesson' ? 0 : 1]);
+        if (l) label = `Clase: ${l.title}`;
+      }
+      if ((kind === 'tutorlesson' || kind === 'claudeclass') && week.lessons.length) {
+        const l = LESSONS.find((x) => x.id === week.lessons[week.lessons.length - 1]);
+        label = `Clase con Claude: ${l.title}`;
+      }
+      if (kind === 'writing' || kind === 'writing2') {
+        const t = WRITING_TASKS.find((x) => x.id === (kind === 'writing' ? week.writing : week.writing2));
+        label = `Writing: ${t.genre}`;
+      }
+      if (kind === 'speaking') label = `Speaking · ${SPEAKING_PARTS.find((x) => x.id === week.speaking).name}`;
+      if (kind === 'uoe') {
+        const nth = sec.kinds.slice(0, i).filter((k) => k === 'uoe').length;
+        const part = ((week.uoePart - 1 + nth) % 3) + 1;
+        label = `Use of English · Part ${part}`;
+        tasks.push({ kind, label, minutes, emoji: info.emoji, section: sec.title, action: () => startUoePart(part), key: `${keyBase}:${kind}:${i}:${sec.title}` });
+        return;
+      }
+      if (kind === 'drill') {
+        const mins = sec.wa.minutes;
+        label = `Sesión de gramática a las ${sec.wa.time} (${mins} min)`;
+        minutes = mins;
+        tasks.push({ kind, label, minutes, emoji: info.emoji, section: sec.title, action: () => startDrill(mins), key: `${keyBase}:${kind}:${i}:${sec.title}` });
+        return;
+      }
+      tasks.push({
+        kind, label, minutes, emoji: info.emoji, section: sec.title,
+        action: () => openKind(kind, week),
+        key: `${keyBase}:${kind}:${i}:${sec.title}`
+      });
+    });
+  });
+  return tasks;
+}
+
+// Marca qué tareas están hechas: a mano, o porque hay actividades
+// registradas de ese tipo en el rango de fechas (una por tarea).
+function withDone(dp) {
+  const counts = {};
+  state.log.forEach((e) => {
+    if (e.date >= dp.from && e.date <= dp.to) counts[e.kind] = (counts[e.kind] || 0) + 1;
+  });
+  const alias = { lesson2: 'lesson', writing2: 'writing' };
+  return dp.tasks.map((t) => {
+    if (t.kind === 'placement') return { ...t, done: state.tests.some((x) => x.type === 'placement') };
+    if (state.manualDone[t.key]) return { ...t, done: true };
+    const k = alias[t.kind] || t.kind;
+    if (counts[k] > 0) { counts[k]--; return { ...t, done: true }; }
+    return { ...t, done: false };
+  });
 }
 
 function openKind(kind, week) {
   switch (kind) {
     case 'lesson': return openLesson(week.lessons[0] || LESSONS[0].id);
+    case 'lesson2': return openLesson(week.lessons[1] || week.lessons[0] || LESSONS[0].id);
+    case 'tutorlesson':
+    case 'claudeclass': {
+      const l = LESSONS.find((x) => x.id === week.lessons[week.lessons.length - 1]) || LESSONS[0];
+      return state.settings.apiKey ? openTutor('lesson', l.title) : openInClaude(claudePromptFor(kind, week));
+    }
+    case 'drill': return startDrill(15);
+    case 'writing2': return startWriting(week.writing2);
     case 'review': return startReview(week);
     case 'vocab': return startVocab();
     case 'uoe': return startUoePart(week.uoePart);
@@ -308,7 +311,7 @@ function openKind(kind, week) {
     case 'listening': return startListening();
     case 'reading': return startReading();
     case 'writing': return startWriting(week.writing);
-    case 'speaking': return openTutor('examiner', week.speaking);
+    case 'speaking': return state.settings.apiKey ? openTutor('examiner', week.speaking) : openInClaude(claudePromptFor('speaking', week));
     case 'eval': return startEvaluation();
     case 'mock': return startMock();
     case 'placement': return startPlacement();
@@ -340,8 +343,8 @@ function show(view) {
   currentView = view;
   $$('.view').forEach((v) => v.classList.add('hidden'));
   $(`#view-${view}`).classList.remove('hidden');
-  $$('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
-  const renderers = { hoy: renderHoy, plan: renderPlan, clases: renderClases, practica: renderPractica, tutor: renderTutor, progreso: renderProgreso };
+  $$('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.view === (view === 'tutor' ? 'chat' : view)));
+  const renderers = { hoy: renderHoy, plan: renderPlan, clases: renderClases, practica: renderPractica, chat: renderChat, tutor: renderTutor, progreso: renderProgreso };
   if (renderers[view]) renderers[view]();
   window.scrollTo(0, 0);
   renderCountdown();
@@ -584,7 +587,39 @@ function streak() {
 }
 
 function totalHours() {
-  return state.log.reduce((a, e) => a + (e.minutes || 0), 0) / 60;
+  return studiedMinutes('0000-00-00', '9999-12-31') / 60;
+}
+
+/* ---------- Tiempo de estudio real ----------
+   Cuenta el tiempo que pasas dentro de una actividad o con el tutor,
+   con la app abierta y sin estar más de 8 minutos sin tocar nada.
+   Lo que hagas en Claude (fuera de la app) no se puede medir. */
+
+const TIME_KEY = 'academia.time';
+let studyTime = {};
+try { studyTime = JSON.parse(localStorage.getItem(TIME_KEY) || '{}'); } catch (e) { studyTime = {}; }
+let lastInput = Date.now();
+['click', 'keydown', 'touchstart', 'input', 'scroll'].forEach((ev) =>
+  document.addEventListener(ev, () => { lastInput = Date.now(); }, { passive: true, capture: true }));
+
+setInterval(() => {
+  if (document.visibilityState !== 'visible') return;
+  if (currentView !== 'actividad' && currentView !== 'tutor') return;
+  const speaking = synth && synth.speaking;
+  if (Date.now() - lastInput > 8 * 60 * 1000 && !speaking) return;
+  const k = dateKey();
+  studyTime[k] = (studyTime[k] || 0) + 15;
+  try { localStorage.setItem(TIME_KEY, JSON.stringify(studyTime)); } catch (e) { /* sin espacio */ }
+}, 15000);
+
+function studiedMinutes(from, to) {
+  let secs = 0;
+  Object.entries(studyTime).forEach(([k, v]) => { if (k >= from && k <= to) secs += v; });
+  return Math.round(secs / 60);
+}
+
+function fmtMin(m) {
+  return m >= 60 ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min` : `${m} min`;
 }
 
 function renderHoy() {
@@ -593,9 +628,30 @@ function renderHoy() {
   const today = new Date();
   const plan = buildPlan();
   const week = weekForDate(plan, today);
-  const tasks = tasksForDate(today);
-  const doneCount = tasks.filter((t) => isTaskDone(t, today)).length;
+  const dp = dayPlan(today);
+  const tasks = withDone(dp);
+  const doneCount = tasks.filter((t) => t.done).length;
   const lastTest = state.tests[state.tests.length - 1];
+  const studied = studiedMinutes(dp.from, dp.to);
+  const pct = dp.goal ? Math.min(100, Math.round((studied / dp.goal) * 100)) : 0;
+
+  let lastSection = null;
+  const rows = tasks.map((t, i) => {
+    let head = '';
+    if (t.section && t.section !== lastSection) {
+      head = `<p class="eyebrow" style="margin:14px 0 2px">${esc(t.section)}</p>`;
+      lastSection = t.section;
+    }
+    return `${head}<div class="task ${t.done ? 'done' : ''}" data-i="${i}">
+      <button class="check" aria-label="Marcar como hecha">${t.done ? '✓' : ''}</button>
+      <div class="task-body"><div class="task-label">${t.emoji || ''} ${esc(t.label)}</div>${t.minutes ? `<div class="muted small">~${t.minutes} min${CLAUDE_KINDS.includes(t.kind) && !state.settings.apiKey ? ' · en Claude: márcala al terminar' : ''}</div>` : ''}</div>
+      ${t.action ? '<button class="btn small dark go">Empezar</button>' : ''}
+    </div>`;
+  }).join('');
+
+  const title = dp.weekend ? 'Tu fin de semana' : dp.goal ? 'Tu clase de hoy' : 'Hoy';
+  const goalHtml = dp.goal ? `<div style="margin:6px 0 4px"><div class="spread small"><span>${dp.weekend ? 'Llevas este fin de semana' : 'Llevas hoy'}: <b>${fmtMin(studied)}</b></span><span class="muted">objetivo ${fmtMin(dp.goal)}</span></div><div class="bar"><div style="width:${pct}%"></div></div></div>
+    ${dp.weekend ? '<p class="muted small" style="margin:6px 0 0">Elige tú cuándo: haz la clase y los ejercicios a la hora que mejor te venga, el sábado o el domingo. Cuando acabes la lista, sigue con los ejercicios extra de abajo hasta llegar a tu objetivo.</p>' : ''}` : '<p class="muted small" style="margin:6px 0 0">Hoy no tienes clase. Si te apetece, escribe <b>hello there</b> en tu proyecto de Claude para conversar un rato (mira la pestaña Chat).</p>';
 
   const hello = today.getHours() < 14 ? 'Good morning' : today.getHours() < 21 ? 'Good afternoon' : 'Good evening';
   el.innerHTML = `
@@ -610,20 +666,16 @@ function renderHoy() {
       <div class="kpi"><b>${lastTest ? lastTest.scale : '—'}</b><span>${lastTest ? esc(scaleToLabel(lastTest.scale)) : 'sin evaluar'}</span></div>
     </div>
     <div class="card">
-      <div class="spread"><h3>Tu clase de hoy</h3><span class="tag ${doneCount === tasks.length && tasks.length ? 'ok' : ''}">${doneCount}/${tasks.length}</span></div>
-      <div class="tasks">${tasks.length ? tasks.map((t, i) => `
-        <div class="task ${isTaskDone(t, today) ? 'done' : ''}" data-i="${i}">
-          <button class="check" aria-label="Marcar como hecha">${isTaskDone(t, today) ? '✓' : ''}</button>
-          <div class="task-body"><div class="task-label">${t.emoji || ''} ${esc(t.label)}</div>${t.minutes ? `<div class="muted small">~${t.minutes} min</div>` : ''}</div>
-          ${t.action ? '<button class="btn small dark go">Empezar</button>' : ''}
-        </div>`).join('') : '<p class="muted">No hay tareas para hoy.</p>'}
-      </div>
+      <div class="spread"><h3>${title}</h3>${tasks.length ? `<span class="tag ${doneCount === tasks.length ? 'ok' : ''}">${doneCount}/${tasks.length}</span>` : ''}</div>
+      ${goalHtml}
+      <div class="tasks">${rows || '<p class="muted">No hay tareas para hoy.</p>'}</div>
     </div>
+    ${dp.weekend ? extraExercisesCard() : ''}
     ${hoursNotice(plan)}
     <div class="card">
       <h3>¿Te sobra tiempo?</h3>
       <div class="grid2">
-        <button class="tile" data-go="tutor"><span class="emoji">💬</span><b>Conversar</b><span class="muted">Charla libre con el tutor</span></button>
+        <button class="tile" data-go="tutor"><span class="emoji">💬</span><b>Conversar</b><span class="muted">Tema de hoy en Claude (gratis)</span></button>
         <button class="tile" data-go="vocab"><span class="emoji">🃏</span><b>Tarjetas</b><span class="muted">${dueCards().length} pendientes de repaso</span></button>
       </div>
     </div>`;
@@ -632,15 +684,38 @@ function renderHoy() {
     const t = tasks[Number(row.dataset.i)];
     $('.check', row).onclick = () => {
       if (t.kind === 'placement' || t.kind === 'exam') return;
-      state.manualDone[t.key] = !state.manualDone[t.key];
+      state.manualDone[t.key] = !t.done;
       save();
       renderHoy();
     };
     const go = $('.go', row);
     if (go) go.onclick = t.action;
   });
-  $('[data-go="tutor"]', el).onclick = () => openTutor('free');
+  $$('[data-extra]', el).forEach((b) => (b.onclick = EXTRA_ACTIONS[b.dataset.extra]));
+  $('[data-go="tutor"]', el).onclick = () => show('chat');
   $('[data-go="vocab"]', el).onclick = () => startVocab();
+}
+
+// Ejercicios ilimitados para seguir estudiando el fin de semana
+const EXTRA_ACTIONS = {
+  drill: () => startDrill(20),
+  uoe: () => startUoePart(Math.floor(Math.random() * 4) + 1),
+  listening: () => startListening(),
+  dictation: () => startDictation(),
+  writing: () => startWriting(),
+  vocab: () => startVocab(),
+  free: () => openInClaude('hello there'),
+  exam: () => openInClaude(`Speaking Part ${Math.floor(Math.random() * 4) + 1}. Let's start.`)
+};
+function extraExercisesCard() {
+  const items = [
+    ['drill', '🧠', 'Sesión de gramática (20 preguntas)'], ['uoe', '🧩', 'Use of English (parte al azar)'],
+    ['listening', '👂', 'Listening'], ['dictation', '🎧', 'Otro dictado'],
+    ['writing', '✍️', 'Otro writing (corrígelo en Claude)'], ['vocab', '🃏', 'Tarjetas de vocabulario'],
+    ['free', '💬', 'Conversación en Claude'], ['exam', '🎓', 'Speaking en Claude (usa el modo voz)']
+  ];
+  return `<div class="card"><h3>🔁 Ejercicios extra (ilimitados)</h3><p class="muted small">Para seguir hasta completar tus horas del fin de semana. Las preguntas se mezclan cada vez y priorizan las que no has visto.</p>
+    <div class="grid2">${items.map(([id, e, t]) => `<button class="tile" data-extra="${id}"><span class="emoji">${e}</span><b>${t}</b></button>`).join('')}</div></div>`;
 }
 
 // Aviso honesto: ¿da tiempo con las horas que tienes?
@@ -649,17 +724,27 @@ function hoursNotice(plan) {
   const lvl = state.profile.level;
   const needed = Math.max(0, HOURS_TO_REACH.C1 - (HOURS_TO_REACH[lvl] || HOURS_TO_REACH.B1));
   const daysLeft = Math.max(0, daysBetween(new Date(), plan.exam));
-  const available = Math.round((daysLeft * 6 / 7) * (state.profile.minutesPerDay / 60));
+  const perWeek = weeklyMinutes(schedule());
+  const available = Math.round((daysLeft / 7) * (perWeek / 60));
   if (lvl === 'C1' || lvl === 'C2') {
     return `<div class="notice">✅ Tu nivel ya está en C1. El plan se centra en técnica de examen para que llegues con margen (objetivo: 190+).</div>`;
   }
   const ok = available >= needed;
-  return `<div class="notice ${ok ? '' : 'warn'}">${ok ? '✅' : '⚠️'} Para pasar de <b>${lvl}</b> a <b>C1</b> se suelen necesitar unas <b>${needed} horas</b> de estudio guiado. Con ${state.profile.minutesPerDay} min/día te quedan unas <b>${available} horas</b> hasta el examen.${ok ? ' ¡Vas bien!' : ' Considera subir los minutos diarios en ⚙️ Ajustes o elegir una convocatoria posterior.'}</div>`;
+  return `<div class="notice ${ok ? '' : 'warn'}">${ok ? '✅' : '⚠️'} Para pasar de <b>${lvl}</b> a <b>C1</b> se suelen necesitar unas <b>${needed} horas</b> de estudio guiado. Con tu horario (${fmtMin(perWeek)} a la semana) te quedan unas <b>${available} horas</b> hasta el examen.${ok ? ' ¡Vas bien!' : ' Considera añadir horas en ⚙️ Ajustes o elegir una convocatoria posterior.'}</div>`;
 }
 
 /* ==========================================================
    9. Pantalla PLAN (cronograma)
    ========================================================== */
+
+const DAY_NAMES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+
+function scheduleSummary(sch) {
+  const days = sch.classDays.slice().sort().map((d) => DAY_NAMES[d]);
+  const parts = [`Clases de ${fmtMin(sch.classMinutes)} los ${days.join(' y ')}`, `fin de semana ${fmtMin(sch.weekendMinutes)} entre clase y ejercicios, cuando te venga bien`];
+  if (sch.chat) parts.push('sesiones de gramática en el Chat lunes, martes y jueves a las 7:40 (15 min) y miércoles y viernes a las 8:00 (20 min)');
+  return parts.join(' · ') + '.';
+}
 
 function renderPlan() {
   const el = $('#view-plan');
@@ -669,10 +754,11 @@ function renderPlan() {
   const cur = weekForDate(plan, today);
   const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
   const weekday = [1, 2, 3, 4, 5, 6, 0];
+  const sch = schedule();
 
   let html = `<h2>Tu cronograma</h2>
-    <div class="card"><p>Del <b>${fmtDate(plan.start, { day: 'numeric', month: 'long' })}</b> al examen el <b>${fmtDate(plan.exam, { day: 'numeric', month: 'long', year: 'numeric' })}</b>: ${plan.totalWeeks} semanas, ${state.profile.minutesPerDay} min al día.</p>
-    <p class="muted small" style="margin:0">Rutina semanal: Lun clase + vocabulario · Mar Use of English + dictado · Mié writing · Jue listening + transformaciones · Vie speaking · Sáb repaso/reading o evaluación · Dom descanso activo (tarjetas).</p></div>`;
+    <div class="card"><p>Del <b>${fmtDate(plan.start, { day: 'numeric', month: 'long' })}</b> al examen el <b>${fmtDate(plan.exam, { day: 'numeric', month: 'long', year: 'numeric' })}</b>: ${plan.totalWeeks} semanas, unas ${fmtMin(weeklyMinutes(sch))} de estudio a la semana.</p>
+    <p class="muted small" style="margin:0">${scheduleSummary(sch)}</p></div>`;
 
   [1, 2, 3].forEach((ph) => {
     const ws = plan.weeks.filter((w) => w.phase === ph);
@@ -686,8 +772,8 @@ function renderPlan() {
       const sp = SPEAKING_PARTS.find((s) => s.id === w.speaking);
       const days = weekday.map((wd) => {
         const d = addDays(w.start, (wd + 6) % 7);
-        const t = tasksForDate(d);
-        const done = t.length && t.every((x) => isTaskDone(x, d));
+        const t = withDone(dayPlan(d));
+        const done = t.length && t.every((x) => x.done);
         return `<span title="${esc(t.map((x) => x.label).join(' · '))}">${dayNames[wd]}${done ? '✓' : ''}</span>`;
       }).join(' ');
       html += `<details class="week ${isCur ? 'current' : ''} ${past ? 'past' : ''}" ${isCur ? 'open' : ''}>
@@ -698,8 +784,8 @@ function renderPlan() {
           <li>🧩 Use of English: Part ${w.uoePart} y Part 4</li>
           <li>✍️ Writing: ${esc(wt.genre)}</li>
           <li>🗣️ Speaking: ${esc(sp.name)}</li>
-          ${w.test === 'eval' ? '<li>📝 Sábado: evaluación mensual</li>' : ''}
-          ${w.test === 'mock' ? '<li>🏁 Sábado: simulacro cronometrado</li>' : ''}
+          ${w.test === 'eval' ? '<li>📝 Fin de semana: evaluación mensual</li>' : ''}
+          ${w.test === 'mock' ? '<li>🏁 Fin de semana: simulacro cronometrado</li>' : ''}
           ${w.isLast ? '<li>🎓 Semana del examen: solo repaso ligero, vocabulario y conversación</li>' : ''}
         </ul>
         <p class="muted small" style="margin:8px 0 0">${days}</p>
@@ -971,8 +1057,12 @@ async function aiPassage(kind) {
 function startReading() {
   const body = activity('Reading', 'practica');
   if (!state.settings.apiKey) {
-    body.innerHTML = '<div id="nk"></div><p class="muted">Mientras tanto, practica Use of English (también es lectura) o haz el listening y lee la transcripción.</p>';
-    needKey($('#nk', body));
+    body.innerHTML = `<div class="card"><h3>Reading gratis en Claude</h3>
+      <p class="muted">Claude te prepara un texto nuevo tipo examen con sus preguntas y luego te corrige. Pulsa el botón, pega el mensaje en tu proyecto y responde allí.</p>
+      <button class="btn primary block" id="readClaude">Abrir reading en Claude</button>
+      <button class="btn block ghost" id="readDone" style="margin-top:6px">✓ Ya lo he hecho</button></div>`;
+    $('#readClaude', body).onclick = () => openInClaude('Reading: give me a C1 Advanced Reading Part 5 text (about 500 words, from a magazine or non-fiction book) with 6 multiple-choice questions. Wait for my answers before correcting them.');
+    $('#readDone', body).onclick = () => { logActivity('reading', null, 'Reading en Claude'); toast('¡Apuntado!'); show('hoy'); };
     return;
   }
   body.innerHTML = '<div class="card"><p class="muted">✨ Preparando un texto nuevo tipo examen (Part 5)… tarda unos segundos.</p></div>';
@@ -1015,7 +1105,8 @@ function startWriting(taskId) {
       <div class="spread"><span>Palabras: <span class="wordcount" id="wc">0</span></span><span class="row"><span class="timer" id="timer">45:00</span><button class="btn small" id="timerBtn">▶ Cronómetro</button></span></div>
       <textarea id="wtext" style="min-height:280px;margin-top:8px" placeholder="Escribe aquí tu texto en inglés…">${esc(draft)}</textarea>
       <p class="muted small">El borrador se guarda solo mientras escribes.</p>
-      <button class="btn primary block" id="correct">Corregir con criterios Cambridge (IA)</button>
+      <button class="btn primary block" id="freeCorrect">Corregir gratis en Claude</button>
+      <button class="btn block" id="correct" style="margin-top:6px">Corregir aquí con la API (de pago)</button>
       <button class="btn block ghost" id="self" style="margin-top:6px">Autoevaluarme sin IA</button>
     </div><div id="wres"></div>`;
   const ta = $('#wtext', body);
@@ -1041,6 +1132,13 @@ function startWriting(taskId) {
     }, 1000);
   };
   cleanupActivity = () => { if (iv) clearInterval(iv); };
+
+  $('#freeCorrect', body).onclick = () => {
+    const text = ta.value.trim();
+    if (countWords(text) < 80) { toast('Escribe al menos 80 palabras antes de corregir'); return; }
+    logActivity('writing', null, task.genre + ' (corregido en Claude)');
+    openInClaude(`Please mark my C1 Advanced Writing (Part ${task.part}, ${task.genre}, ${task.words} words).\n\nTASK:\n${task.prompt}\n\nMY ANSWER (${countWords(text)} words):\n${text}`);
+  };
 
   $('#self', body).onclick = () => {
     const checks = ['He respondido a TODOS los puntos de la tarea', 'El registro (formal/informal) es adecuado al lector', 'Hay párrafos claros con una idea principal cada uno', 'He usado conectores variados (however, moreover, whereas…)', 'He usado al menos 2 estructuras C1 (inversión, cleft, condicional mixta…)', 'Vocabulario preciso, sin repetir palabras básicas (good, bad, thing…)', 'Está entre 220 y 260 palabras', 'He revisado tiempos verbales, artículos y preposiciones'];
@@ -1292,6 +1390,315 @@ function startMock() {
 }
 
 /* ==========================================================
+   12b. Pantalla CHAT (gratis, sin IA de pago)
+   - Sesiones de gramática de 15/20 min en formato chat, con
+     preguntas del banco de la academia y corrección al momento.
+   - Recordatorios en el calendario del móvil.
+   - Conversación con Claude en un Proyecto (incluido en tu cuenta).
+   ========================================================== */
+
+const CLAUDE_KINDS = ['claudeclass', 'tutorlesson', 'speaking'];
+const QUESTIONS_FOR = { 15: 15, 20: 20 }; // ~1 minuto por pregunta
+
+// Un tema de conversación para cada día del mes
+const TOPICS = [
+  'your morning routine', 'a trip you would love to take', 'technology at work', 'living in a big city',
+  'food and eating habits', 'a book, film or series that made you think', 'staying healthy with a busy job',
+  'friendship as we get older', 'artificial intelligence: opportunities and risks', 'learning languages',
+  'money: saving and spending', 'climate change and what individuals can do', 'remote work vs the office',
+  'social media: connection or distraction?', 'a person who has influenced you', 'your ideal job in ten years',
+  'traditions and festivals in your region', 'what schools should teach', 'shopping online vs in person',
+  'renting vs buying a home', 'music in your life', 'a difficult decision you made', 'tourism and local people',
+  'sleep, stress and well-being', 'the future of transport', 'a skill you want to learn', 'fake news',
+  'volunteering', 'what makes a good leader', 'how your city has changed', 'your plans for the weekend'
+];
+function topicOfDay(d = new Date()) {
+  return TOPICS[d.getDate() - 1];
+}
+
+// Todas las preguntas del banco, cada una con un id para no repetirlas
+function questionBank() {
+  const bank = [];
+  LESSONS.forEach((l) => l.exercises.forEach((ex, i) => bank.push({ ...ex, id: `L:${l.id}:${i}`, lesson: l.id })));
+  UOE.part4.forEach((ex, i) => bank.push({ ...ex, id: `P4:${i}`, lesson: null }));
+  [1, 2, 3].forEach((part) => UOE['part' + part].forEach((t, ti) =>
+    examTextToItems(part, t).forEach((ex, k) => bank.push({ ...ex, id: `T${part}:${ti}:${k}`, lesson: null }))));
+  return bank;
+}
+
+// Elige las preguntas: sobre todo de la gramática de esta semana,
+// algo de repaso de semanas anteriores y algo de Use of English.
+function pickDrill(n) {
+  const plan = buildPlan();
+  const focus = plan ? grammarFocus(plan, new Date()) : { current: LESSONS.slice(0, 2), review: [] };
+  const seen = new Set(state.drillSeen || []);
+  const bank = questionBank();
+  const fresh = (list) => {
+    const unseen = list.filter((q) => !seen.has(q.id));
+    return shuffle(unseen.length >= list.length / 3 ? unseen : list);
+  };
+  const curIds = focus.current.map((l) => l.id);
+  const revIds = focus.review.map((l) => l.id);
+  const current = fresh(bank.filter((q) => curIds.includes(q.lesson)));
+  const review = fresh(bank.filter((q) => revIds.includes(q.lesson)));
+  const uoe = fresh(bank.filter((q) => !q.lesson));
+  const nCur = Math.min(current.length, Math.round(n * 0.5));
+  const nRev = Math.min(review.length, Math.round(n * 0.25));
+  const chosen = [...current.slice(0, nCur), ...review.slice(0, nRev)];
+  const rest = fresh(bank.filter((q) => !chosen.includes(q)));
+  const uoeFirst = [...uoe, ...rest].filter((q, i, arr) => arr.indexOf(q) === i && !chosen.includes(q));
+  return shuffle([...chosen, ...uoeFirst.slice(0, n - chosen.length)]);
+}
+
+function renderChat() {
+  const el = $('#view-chat');
+  if (!state.profile) { el.innerHTML = ''; return; }
+  const today = new Date();
+  const sch = schedule();
+  const session = sch.chat && CHAT_SESSIONS[today.getDay()];
+  const doneToday = state.log.some((e) => e.date === dateKey() && e.kind === 'drill');
+  const project = state.settings.claudeProjectUrl;
+
+  el.innerHTML = `<h2>Chat</h2>
+    <div class="card">
+      <h3>🧠 Sesión de gramática</h3>
+      ${session
+        ? `<p>Hoy toca a las <b>${session.time}</b>: ${session.minutes} minutos (${QUESTIONS_FOR[session.minutes]} preguntas) sobre la gramática de esta semana y repaso.</p>
+           ${doneToday ? '<p class="tag ok">✓ Hecha hoy</p>' : ''}
+           <button class="btn primary block" data-drill="${session.minutes}">${doneToday ? 'Hacer otra' : 'Empezar'} (${session.minutes} min)</button>`
+        : '<p class="muted">Hoy no hay sesión programada. Si quieres, haz una extra:</p>'}
+      <div class="row" style="margin-top:8px"><button class="btn small" data-drill="15">Extra de 15 min</button><button class="btn small" data-drill="20">Extra de 20 min</button></div>
+    </div>
+
+    <div class="card">
+      <h3>🔔 Recordatorios</h3>
+      <p class="muted small">Añade las sesiones a la agenda del móvil (Google Calendar, Calendario de iPhone…). Te avisará lunes, martes y jueves a las 7:40 y miércoles y viernes a las 8:00, hasta el día del examen. Al tocar el aviso se abre la app.</p>
+      <button class="btn dark" id="icsBtn">📅 Añadir al calendario</button>
+    </div>
+
+    <div class="card">
+      <h3>💬 Conversación con Claude <span class="tag ok">gratis</span></h3>
+      <p>Tema de hoy: <b>${esc(topicOfDay(today))}</b></p>
+      <p class="muted small">Se hace en la app de Claude, con tu cuenta (sin pagar la API). Escribe <b>hello there</b> para empezar y <b>bye</b> para terminar: te corrige todo lo que digas mal. En el móvil puedes usar el <b>modo voz</b> de Claude para practicar hablando.</p>
+      ${project ? '' : `<details class="week" open><summary>Configúralo una vez (5 min)</summary>
+        <ol class="small" style="padding-left:18px;margin:8px 0 0">
+          <li>Abre <a href="https://claude.ai/projects" target="_blank" rel="noopener">claude.ai/projects</a> → <b>Create project</b> → llámalo <i>English teacher</i>.</li>
+          <li>Pulsa el botón de abajo para copiar las instrucciones y pégalas en <b>Project instructions</b> del proyecto.</li>
+          <li>Copia el enlace del proyecto (la dirección de la página) y pégalo en ⚙️ Ajustes → <i>Enlace a tu proyecto de Claude</i>.</li>
+        </ol></details>`}
+      <div class="row" style="margin-top:10px">
+        <button class="btn small" id="copyInstr">📋 Copiar instrucciones del proyecto</button>
+        <button class="btn primary" id="goClaude">Abrir Claude y decir hello there</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>🤖 Tutor dentro de la app <span class="tag">opcional · de pago</span></h3>
+      <p class="muted small">Usa la API de Claude con tu propia clave (se paga aparte por uso). No hace falta: con el proyecto de Claude tienes lo mismo gratis.</p>
+      <button class="btn small" id="paidTutor">Abrir tutor de la app</button>
+    </div>`;
+
+  $$('[data-drill]', el).forEach((b) => (b.onclick = () => startDrill(Number(b.dataset.drill))));
+  $('#icsBtn', el).onclick = downloadIcs;
+  $('#copyInstr', el).onclick = () => copyText(projectInstructions(), 'Instrucciones copiadas. Pégalas en el proyecto de Claude.');
+  $('#goClaude', el).onclick = () => openInClaude('hello there');
+  $('#paidTutor', el).onclick = () => openTutor('free');
+}
+
+/* ---------- Sesión de gramática en formato chat ---------- */
+
+function startDrill(minutes) {
+  const n = QUESTIONS_FOR[minutes] || minutes;
+  const items = pickDrill(n);
+  const body = activity(`🧠 Gramática · ${minutes} min`, 'chat');
+  body.innerHTML = `<div class="spread small muted" style="margin-bottom:8px"><span id="dProg">Pregunta 1/${items.length}</span><span class="timer" id="dTimer">${minutes}:00</span></div>
+    <div class="chat" id="dChat"></div>
+    <div class="composer" id="dComposer"></div>`;
+  const chatEl = $('#dChat', body);
+  const composer = $('#dComposer', body);
+  let idx = 0;
+  let correct = 0;
+  const wrong = [];
+  const started = Date.now();
+
+  const iv = setInterval(() => {
+    const left = Math.max(0, minutes * 60 - Math.floor((Date.now() - started) / 1000));
+    const t = $('#dTimer', body);
+    if (t) t.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+  }, 1000);
+  cleanupActivity = () => clearInterval(iv);
+
+  const say = (html, who = 'assistant') => {
+    const div = document.createElement('div');
+    div.className = 'msg ' + who;
+    div.innerHTML = html;
+    chatEl.appendChild(div);
+    div.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  };
+
+  const hello = new Date().getHours() < 13 ? 'Good morning' : 'Hi';
+  say(`${hello}, ${esc(state.profile.name)}! ☕ ${items.length} preguntas rápidas. Responde como si fuera WhatsApp: si fallas, te digo cómo se dice bien.`);
+
+  function ask() {
+    const q = items[idx];
+    $('#dProg', body).textContent = `Pregunta ${idx + 1}/${items.length}`;
+    let html = `<b>Q${idx + 1}/${items.length}</b><br>`;
+    if (q.type === 'kwt') html += `${esc(q.q)}<br><b>Palabra clave: ${esc(q.key)}</b><br><i>${esc(q.start || '')} ______ ${esc(q.end)}</i><br><span class="muted small">Escribe solo lo que va en el hueco (2–5 palabras).</span>`;
+    else if (q.type === 'wf') html += `${gapHtml(q.q)}<br><span class="muted small">Forma una palabra a partir de <b>${esc(q.base)}</b>.</span>`;
+    else html += gapHtml(q.q);
+    say(html);
+    if (q.type === 'mc') {
+      composer.innerHTML = `<div class="opts">${q.options.map((o, k) => `<button class="opt" data-k="${k}">${String.fromCharCode(97 + k)}) ${esc(o)}</button>`).join('')}</div>`;
+      $$('.opt', composer).forEach((b) => (b.onclick = () => answer(Number(b.dataset.k), `${String.fromCharCode(97 + Number(b.dataset.k))}) ${q.options[Number(b.dataset.k)]}`)));
+    } else {
+      composer.innerHTML = `<div class="row"><input type="text" id="dIn" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Tu respuesta…" style="flex:1"><button class="btn dark" id="dSend">Enviar</button></div>`;
+      const inp = $('#dIn', composer);
+      const send = () => { if (inp.value.trim()) answer(inp.value, inp.value); };
+      $('#dSend', composer).onclick = send;
+      inp.onkeydown = (e) => { if (e.key === 'Enter') send(); };
+      inp.focus();
+    }
+  }
+
+  function answer(given, shown) {
+    const q = items[idx];
+    composer.innerHTML = '';
+    say(esc(shown), 'user');
+    const ok = checkItem(q, given);
+    if (ok) correct++;
+    else wrong.push(q);
+    const right = q.type === 'kwt' ? `${q.start ? q.start + ' ' : ''}${q.answers[0]} ${q.end}`.trim() : correctText(q);
+    const fill = q.type !== 'kwt' && q.q.includes('___') ? q.q.replace('___', `*${right}*`) : right;
+    setTimeout(() => {
+      say(`${ok ? '✅ <b>Correct!</b>' : '❌ <b>Not quite.</b>'}<span class="corr">✏️ Se dice: ${mdLite(fill)}${q.explain ? `<br>${esc(q.explain)}` : ''}</span>`);
+      state.drillSeen = [...(state.drillSeen || []), q.id].slice(-200);
+      idx++;
+      if (idx < items.length) setTimeout(ask, 500);
+      else setTimeout(finish, 500);
+    }, 250);
+  }
+
+  function finish() {
+    clearInterval(iv);
+    const pct = correct / items.length;
+    logActivity('drill', pct, `${minutes} min`);
+    const lessonsToReview = [...new Set(wrong.map((q) => q.lesson).filter(Boolean))].map((id) => LESSONS.find((l) => l.id === id));
+    say(`🏁 <b>${correct}/${items.length}</b> — ${pct >= 0.8 ? 'Excellent! 🎉' : pct >= 0.6 ? 'Good job! 👍' : 'Keep going, ¡se aprende fallando! 💪'}
+      ${lessonsToReview.length ? `<br>Repasa: ${lessonsToReview.map((l) => `<a href="#" data-lesson="${l.id}">${esc(l.title)}</a>`).join(', ')}` : ''}
+      <br>Have a great day! ☀️`);
+    $$('[data-lesson]', chatEl).forEach((a) => (a.onclick = (e) => { e.preventDefault(); openLesson(a.dataset.lesson); }));
+    composer.innerHTML = '<button class="btn primary block" id="dBack">Volver al Chat</button>';
+    $('#dBack', composer).onclick = () => show('chat');
+  }
+
+  ask();
+}
+
+/* ---------- Recordatorios (.ics para el calendario) ---------- */
+
+function icsDate(d, time) {
+  return `${dateKey(d).replace(/-/g, '')}T${time.replace(':', '')}00`;
+}
+
+function downloadIcs() {
+  const exam = parseDate(state.profile.examDate);
+  const until = `${dateKey(addDays(exam, -1)).replace(/-/g, '')}T235959Z`;
+  const appUrl = location.href.split('#')[0] + '#chat';
+  const groups = {};
+  Object.entries(CHAT_SESSIONS).forEach(([wd, s]) => {
+    (groups[s.time + '|' + s.minutes] = groups[s.time + '|' + s.minutes] || []).push(Number(wd));
+  });
+  const codes = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  const events = Object.entries(groups).map(([k, days]) => {
+    const [time, minutes] = k.split('|');
+    let first = new Date();
+    while (!days.includes(first.getDay())) first = addDays(first, 1);
+    const end = new Date(2000, 0, 1, ...time.split(':').map(Number));
+    end.setMinutes(end.getMinutes() + Number(minutes));
+    const endTime = `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
+    return ['BEGIN:VEVENT',
+      `UID:academia-c1-${time.replace(':', '')}-${days.join('')}@academia-c1`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART;TZID=Europe/Madrid:${icsDate(first, time)}`,
+      `DTEND;TZID=Europe/Madrid:${icsDate(first, endTime)}`,
+      `RRULE:FREQ=WEEKLY;BYDAY=${days.map((d) => codes[d]).join(',')};UNTIL=${until}`,
+      `SUMMARY:🧠 English grammar (${minutes} min)`,
+      `DESCRIPTION:Sesión de gramática en la Academia C1: ${appUrl}`,
+      `URL:${appUrl}`,
+      'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Grammar time!', 'TRIGGER:PT0M', 'END:VALARM',
+      'END:VEVENT'].join('\r\n');
+  });
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Academia C1//ES', 'CALSCALE:GREGORIAN',
+    'BEGIN:VTIMEZONE', 'TZID:Europe/Madrid',
+    'BEGIN:DAYLIGHT', 'TZOFFSETFROM:+0100', 'TZOFFSETTO:+0200', 'TZNAME:CEST', 'DTSTART:19700329T020000', 'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU', 'END:DAYLIGHT',
+    'BEGIN:STANDARD', 'TZOFFSETFROM:+0200', 'TZOFFSETTO:+0100', 'TZNAME:CET', 'DTSTART:19701025T030000', 'RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU', 'END:STANDARD',
+    'END:VTIMEZONE', ...events, 'END:VCALENDAR'].join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar' }));
+  a.download = 'academia-c1-recordatorios.ics';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('Abre el archivo descargado para añadirlo a tu calendario');
+}
+
+/* ---------- Claude (gratis con tu cuenta) ---------- */
+
+function copyText(text, msg) {
+  const done = () => toast(msg || 'Copiado');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else fallbackCopy(text, done);
+}
+function fallbackCopy(text, done) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); done(); } catch (e) { toast('No se pudo copiar'); }
+  ta.remove();
+}
+
+// Copia el mensaje y abre tu proyecto de Claude para pegarlo
+function openInClaude(prompt) {
+  const url = state.settings.claudeProjectUrl || 'https://claude.ai/projects';
+  copyText(prompt, state.settings.claudeProjectUrl ? 'Mensaje copiado: pégalo en el chat de Claude' : 'Mensaje copiado. Configura tu proyecto en la pestaña Chat para ir directo.');
+  window.open(url, '_blank', 'noopener');
+}
+
+function projectInstructions() {
+  const p = state.profile;
+  return `You are my personal English teacher. I'm ${p.name}, a Spanish speaker preparing the Cambridge C1 Advanced exam on ${p.examDate}. My current level is about ${p.level || 'B2'}. Use British English.
+
+MOST IMPORTANT RULE: whenever I write or say anything with a mistake (grammar, vocabulary, collocation, spelling, word order or something unnatural), show me exactly how it should be said. Correct every mistake, not only the main one. At the end of each of your replies add:
+✏️ Corrections
+• "what I said" → "how to say it" (motivo breve en español)
+If I made no mistakes, don't add this section.
+
+CONVERSATION PRACTICE
+- When I write "hello there", start a relaxed conversation about the topic of the day: take today's day of the month (1–31) and use that number in this list: ${TOPICS.map((t, i) => `${i + 1}. ${t}`).join('; ')}.
+- Keep your turns short (2–4 sentences) and always finish with a follow-up question, so I talk more than you. Slip in one useful C1 expression per turn in bold.
+- When I write "bye", stop the conversation and give me a short summary: in Spanish, my most repeated mistakes with the correct form, 3 useful expressions from today, and one tip for next time.
+
+OTHER THINGS I MAY ASK
+- "Class: <topic>": teach me that grammar or vocabulary point step by step, with examples, then make me produce sentences one by one and correct them.
+- "Speaking Part <1-4>": act as a Cambridge C1 Advanced Speaking examiner and follow the real exam format. When I write "END", mark me with the official criteria (Grammatical Resource, Lexical Resource, Discourse Management, Interactive Communication, 0–5 each) and tell me in Spanish how to improve.
+- "Reading": give me a C1 Advanced Reading text with multiple-choice questions, wait for my answers, then correct them explaining each one in Spanish.
+- If I paste a piece of writing: mark it like a C1 Advanced examiner (Content, Communicative Achievement, Organisation, Language, 0–5 each), list every mistake with the correction, explain in Spanish what to improve and give me a model C1 version.
+
+Explanations of mistakes go in Spanish; everything else in English.`;
+}
+
+function claudePromptFor(kind, week) {
+  if (kind === 'speaking') {
+    const sp = SPEAKING_PARTS.find((x) => x.id === week.speaking) || SPEAKING_PARTS[0];
+    return `Speaking ${sp.name.split(' · ')[0]}. Let's start.`;
+  }
+  const l = LESSONS.find((x) => x.id === week.lessons[week.lessons.length - 1]) || LESSONS[0];
+  return `Class: ${l.title} (${l.summary})`;
+}
+
+/* ==========================================================
    13. Pantalla TUTOR (conversación con IA)
    ========================================================== */
 
@@ -1422,8 +1829,8 @@ async function sendTutor(text, hidden = false) {
     msgs.push({ role: 'assistant', content: reply });
     // Cuenta como sesión de speaking a partir del 3.er mensaje tuyo (una vez al día por modo)
     const userTurns = msgs.filter((m) => m.role === 'user' && !m.hidden).length;
-    const already = state.log.some((e) => e.date === dateKey() && e.kind === 'speaking' && e.detail === key);
-    if (userTurns >= 3 && !already) logActivity('speaking', null, key);
+    const already = state.log.some((e) => e.date === dateKey() && e.detail === key);
+    if (userTurns >= 3 && !already) logActivity(tutorMode === 'lesson' ? 'tutorlesson' : 'speaking', null, key);
     save();
     busy = false;
     renderTutor();
@@ -1519,7 +1926,7 @@ function renderProgreso() {
         const s = skillScore(kinds);
         return `<div class="skill-row"><div class="spread small"><span>${name}</span><b>${s == null ? 'sin datos' : Math.round(s * 100) + '%'}</b></div><div class="bar"><div style="width:${s == null ? 0 : Math.round(s * 100)}%"></div></div></div>`;
       }).join('')}
-      <div class="skill-row"><div class="spread small"><span>Speaking</span><b>${state.log.filter((e) => e.kind === 'speaking').length} sesiones</b></div></div>
+      <div class="skill-row"><div class="spread small"><span>Speaking</span><b>${state.log.filter((e) => e.kind === 'speaking' || e.kind === 'tutorlesson').length} sesiones</b></div></div>
       ${writingAvg != null ? `<p class="small">Writing (IA, últimas 5): <b>${writingAvg.toFixed(1)}/20</b> — en el examen el aprobado C1 está en torno a 12/20 por tarea.</p>` : ''}
     </div>
     ${weakest.length ? `<div class="card"><h3>Puntos débiles</h3><p class="muted small">Clases con menos de 70%. Repítelas o pide una clase al tutor.</p>${weakest.map((l) => `<button class="btn small" data-lesson="${l.id}" style="margin:0 6px 6px 0">${esc(l.title)} · ${Math.round(state.lessons[l.id] * 100)}%</button>`).join('')}</div>` : ''}
@@ -1549,13 +1956,12 @@ function onboarding() {
   // y según el centro, así que se puede cambiar luego en Ajustes.
   const defaultExam = '2027-05-29';
   openModal(`<p class="eyebrow">👋 Bienvenida a tu academia</p><h2>Vamos a preparar tu C1</h2>
-    <p class="muted">Tres datos y hacemos un test de nivel para crear tu cronograma.</p>
+    <p class="muted">Dos datos y hacemos un test de nivel para crear tu cronograma.</p>
     <form id="obForm">
       <label class="field" for="obName">¿Cómo te llamas?</label><input type="text" id="obName" required>
       <label class="field" for="obDate">Fecha de tu examen Cambridge C1 Advanced</label><input type="date" id="obDate" value="${defaultExam}" required>
       <p class="muted small">Consulta la fecha exacta en tu centro examinador; la puedes cambiar después.</p>
-      <label class="field" for="obMin">¿Cuánto tiempo puedes estudiar al día?</label>
-      <select id="obMin"><option value="30">30 minutos</option><option value="45">45 minutos</option><option value="60" selected>1 hora</option><option value="90">1 h 30 min</option><option value="120">2 horas</option></select>
+      <div class="notice" style="margin-top:12px"><b>Tu horario:</b> ${esc(scheduleSummary(DEFAULT_SCHEDULE))}<br><span class="muted small">Lo puedes cambiar cuando quieras en ⚙️ Ajustes.</span></div>
       <button class="btn primary block" style="margin-top:16px">Hacer el test de nivel</button>
     </form>`);
   $('#obForm').onsubmit = (e) => {
@@ -1564,8 +1970,8 @@ function onboarding() {
       name: $('#obName').value.trim() || 'Student',
       examDate: $('#obDate').value,
       startDate: dateKey(),
-      minutesPerDay: Number($('#obMin').value),
-      level: null
+      level: null,
+      schedule: { ...DEFAULT_SCHEDULE }
     };
     save();
     closeModal();
@@ -1577,11 +1983,18 @@ function onboarding() {
 function openSettings() {
   const s = state.settings;
   const p = state.profile || {};
+  const sch = schedule();
   if (!voices.length) loadVoices();
   openModal(`<div class="spread"><h2>Ajustes</h2><button class="icon-btn" id="closeSet" aria-label="Cerrar">✕</button></div>
     <label class="field" for="sName">Nombre</label><input type="text" id="sName" value="${esc(p.name || '')}">
     <label class="field" for="sDate">Fecha del examen</label><input type="date" id="sDate" value="${esc(p.examDate || '')}">
-    <label class="field" for="sMin">Minutos de estudio al día</label><input type="number" id="sMin" min="15" max="240" step="5" value="${p.minutesPerDay || 60}">
+    <h3 style="margin-top:20px">🗓️ Horario</h3>
+    <label class="field">Días de clase entre semana</label>
+    <div class="row">${[1, 2, 3, 4, 5].map((d) => `<label class="row small"><input type="checkbox" class="sDay" value="${d}" ${sch.classDays.includes(d) ? 'checked' : ''}> ${DAY_NAMES[d]}</label>`).join('')}</div>
+    <label class="field" for="sClassMin">Duración de cada clase (minutos)</label><input type="number" id="sClassMin" min="15" max="240" step="5" value="${sch.classMinutes}">
+    <label class="field" for="sWeekend">Total del fin de semana, clase + ejercicios (minutos)</label><input type="number" id="sWeekend" min="0" max="900" step="15" value="${sch.weekendMinutes}">
+    <label class="row small" style="margin-top:10px"><input type="checkbox" id="sWa" ${sch.chat ? 'checked' : ''}> Sesiones de gramática en el Chat (L, M, J 7:40 · X, V 8:00)</label>
+    <label class="field" for="sProject">Enlace a tu proyecto de Claude (para conversar gratis)</label><input type="text" id="sProject" value="${esc(s.claudeProjectUrl || '')}" placeholder="https://claude.ai/project/...">
 
     <h3 style="margin-top:20px">🤖 Inteligencia artificial (Claude)</h3>
     <p class="muted small">El tutor, la corrección de writing y los ejercicios nuevos usan la API de Claude. Crea una clave en <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (se paga por uso). La clave se guarda solo en este navegador y nunca se sube a GitHub.</p>
@@ -1609,9 +2022,16 @@ function openSettings() {
     if (state.profile) {
       state.profile.name = $('#sName').value.trim() || state.profile.name;
       state.profile.examDate = $('#sDate').value || state.profile.examDate;
-      state.profile.minutesPerDay = Number($('#sMin').value) || 60;
+      const days = $$('.sDay').filter((c) => c.checked).map((c) => Number(c.value));
+      state.profile.schedule = {
+        classDays: days,
+        classMinutes: Number($('#sClassMin').value) || DEFAULT_SCHEDULE.classMinutes,
+        weekendMinutes: Math.max(0, Number($('#sWeekend').value) || 0),
+        chat: $('#sWa').checked
+      };
     }
     state.settings.apiKey = $('#sKey').value.trim();
+    state.settings.claudeProjectUrl = $('#sProject').value.trim();
     state.settings.model = $('#sModel').value;
     state.settings.voiceURI = $('#sVoice').value;
     state.settings.rate = Number($('#sRate').value);
@@ -1660,5 +2080,5 @@ $$('.tabbar button').forEach((b) => (b.onclick = () => show(b.dataset.view)));
 $('#settingsBtn').onclick = () => (state.profile ? openSettings() : onboarding());
 $('#modal').onclick = (e) => { if (e.target.id === 'modal' && state.profile) closeModal(); };
 
-show('hoy');
+show(location.hash === '#chat' && state.profile ? 'chat' : 'hoy');
 if (!state.profile) onboarding();

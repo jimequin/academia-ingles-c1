@@ -1,10 +1,11 @@
-const CACHE_NAME = 'academia-c1-v1';
+const CACHE_NAME = 'academia-c1-v2';
 const FILES_TO_CACHE = [
   './',
   './index.html',
   './styles.css',
   './app.js',
   './data.js',
+  './plan.js',
   './ai.js',
   './manifest.json',
   './icons/icon-192.png',

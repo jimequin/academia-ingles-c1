@@ -8,35 +8,52 @@ que se instala en el móvil como una app.
 
 | Sección | Qué hace |
 |---|---|
-| 🏠 **Hoy** | Tu "clase del día" según el cronograma, racha de días, horas estudiadas y nota estimada. |
-| 🗓️ **Plan** | Cronograma semana a semana desde hoy hasta la fecha de tu examen, en 3 fases (consolidación → núcleo C1 → técnica de examen), con evaluaciones mensuales y simulacros. |
-| 📚 **Clases** | 14 clases de gramática y vocabulario C1 (inversión, cleft sentences, condicionales mixtas, pasiva avanzada, word formation, colocaciones…) con teoría en español, errores típicos y ejercicios corregidos al momento. |
-| ✍️ **Práctica** | Use of English Parts 1–4 en formato examen, dictados, listening (2 escuchas, como en el examen), reading, writing, tarjetas de vocabulario con repaso espaciado, evaluación y simulacro. |
-| 💬 **Tutor** | Conversación con un profesor de IA: charla libre, clase particular de un tema, **examinador de Speaking** (Parts 1–4, con nota según los criterios Cambridge) o corrector de frases. Puedes hablarle con el micrófono y te responde en voz alta. |
+| 🏠 **Hoy** | Lo que toca hoy según tu horario, minutos estudiados frente a tu objetivo, racha y nota estimada. |
+| 🗓️ **Plan** | Cronograma semana a semana hasta tu examen, en 3 fases (consolidación → núcleo C1 → técnica de examen), con evaluaciones mensuales y simulacros. |
+| 📚 **Clases** | 14 clases de gramática y vocabulario C1 con teoría en español, errores típicos y ejercicios corregidos al momento. |
+| ✍️ **Práctica** | Use of English Parts 1–4, dictados, listening, reading, writing, tarjetas de vocabulario, evaluación y simulacro. |
+| 💬 **Chat** | Sesiones de gramática de 15/20 minutos en formato chat (te dice cómo se dice bien cada fallo), recordatorios para el calendario del móvil y conversación con Claude. |
 | 📈 **Progreso** | Gráfico de tu evolución en la escala Cambridge (C1 = 180), destrezas, puntos débiles e historial. |
+
+## Tu horario
+
+| Cuándo | Qué |
+|---|---|
+| Lunes, martes y jueves · 7:40 | Sesión de gramática en el Chat (15 min) |
+| Miércoles y viernes · 8:00 | Sesión de gramática en el Chat (20 min) |
+| Miércoles y viernes | Clase de 1 h 30 |
+| Fin de semana, cuando te venga bien | 4 h entre clase y ejercicios (con ejercicios extra ilimitados) |
+
+Todo se puede cambiar en **⚙️ Ajustes → Horario**. Para que el móvil te avise,
+pulsa **Chat → Añadir al calendario** y abre el archivo que se descarga.
 
 Al abrirla por primera vez te pide tu nombre, la fecha del examen y cuánto
 tiempo tienes al día, y te hace un **test de nivel** (25 preguntas, A2→C2)
 para ajustar el plan.
 
-## La parte de IA (opcional, pero recomendable)
+## Conversar con IA gratis (Proyecto de Claude)
 
-El tutor de conversación, la corrección de writings y los ejercicios/lecturas
-nuevos usan **Claude** a través de la API de Anthropic. Sin clave, todo lo demás
-funciona igual (clases, Use of English, dictados, listening, evaluaciones…).
+La conversación, las clases particulares, el speaking, el reading y la
+corrección de writings se hacen en la **app de Claude con tu cuenta**, sin
+pagar nada aparte:
 
-1. Crea una cuenta en <https://console.anthropic.com> y añade algo de saldo.
-2. Ve a **Settings → API Keys** y crea una clave.
-3. En la app: **⚙️ Ajustes → Clave de API**, pégala y guarda.
+1. Abre <https://claude.ai/projects> → **Create project** → llámalo *English teacher*.
+2. En la app de la academia: **Chat → Copiar instrucciones del proyecto**, y
+   pégalas en *Project instructions*.
+3. Copia el enlace del proyecto y pégalo en **⚙️ Ajustes → Enlace a tu proyecto de Claude**.
 
-En Ajustes puedes elegir el modelo: Opus 5.5 (el mejor profesor), Sonnet 5.5
-(más barato) o Haiku 5.5 (rapidísimo y muy económico). Si vas a conversar mucho
-cada día, Sonnet o Haiku te saldrán bastante más baratos.
+A partir de ahí: escribe **hello there** para conversar (un tema distinto cada
+día), **bye** para terminar, y Claude te corrige todo lo que digas mal. En el
+móvil puedes usar el modo voz de Claude para practicar hablando. Los botones
+de la academia ("Clase con Claude", "Speaking", "Corregir gratis en Claude")
+copian el mensaje y abren tu proyecto: solo tienes que pegarlo.
 
-**Seguridad:** la clave se guarda solo en tu navegador (`localStorage`) y la app
-habla directamente con la API de Anthropic. No está en el código ni se sube a
-GitHub. Como la app es solo para ti, este sistema es suficiente; si algún día la
-abrieras a más gente, habría que poner un pequeño servidor que guarde la clave.
+### Opcional: IA dentro de la app (de pago)
+
+Si algún día quieres el tutor y las correcciones dentro de la propia app, puedes
+poner una clave de la API de Anthropic en **⚙️ Ajustes**. Eso se paga aparte
+de tu cuenta de Claude, por uso (créditos que se gastan según los *tokens*).
+No hace falta para usar la academia.
 
 ## Tus datos
 
@@ -72,9 +89,10 @@ En iPhone ábrela en Safari → compartir → *Añadir a pantalla de inicio*.
 academia-ingles-c1/
 ├── index.html     → esqueleto de la app (pestañas y ventanas)
 ├── styles.css     → diseño (modo claro y oscuro)
-├── app.js         → toda la lógica: plan, ejercicios, tests, tutor, progreso
+├── app.js         → toda la lógica: pantallas, ejercicios, tests, chat, progreso
+├── plan.js        → el cronograma y tu horario semanal
 ├── data.js        → el contenido: test de nivel, clases, ejercicios, dictados…
-├── ai.js          → la conexión con Claude (tutor, correcciones, ejercicios nuevos)
+├── ai.js          → la conexión opcional (de pago) con la API de Claude
 ├── manifest.json  → hace que se pueda instalar en el móvil
 ├── sw.js          → permite usarla sin conexión
 └── icons/         → iconos de la app
