@@ -10,10 +10,10 @@ que se instala en el móvil como una app.
 |---|---|
 | 🏠 **Hoy** | Lo que toca hoy según tu horario, minutos estudiados frente a tu objetivo, racha y nota estimada. |
 | 🗓️ **Plan** | Cronograma semana a semana hasta tu examen, en 3 fases (consolidación → núcleo C1 → técnica de examen), con evaluaciones mensuales y simulacros. |
-| 📚 **Clases** | 14 clases de gramática y vocabulario C1 con teoría en español, errores típicos y ejercicios corregidos al momento. |
-| ✍️ **Práctica** | Use of English Parts 1–4, dictados, listening, reading, writing, tarjetas de vocabulario, evaluación y simulacro. |
-| 💬 **Chat** | Sesiones de gramática de 15/20 minutos en formato chat (te dice cómo se dice bien cada fallo), recordatorios para el calendario del móvil y conversación con Claude. |
-| 📈 **Progreso** | Gráfico de tu evolución en la escala Cambridge (C1 = 180), destrezas, puntos débiles e historial. |
+| 📚 **Clases** | **Guía oficial del examen** (formato de cada parte, puntuación, criterios, estrategias y recursos gratuitos de Cambridge) y 14 clases de gramática y vocabulario C1 con teoría en español y ejercicios corregidos al momento. |
+| ✍️ **Práctica** | Use of English Parts 1–4, Reading Parts 5–8 (generados por la IA con el formato oficial), dictados, listening, writing, vocabulario, examen semanal, examen mensual y simulacro. |
+| 💬 **Chat** | Profesor IA dentro de la app (gratis con Gemini): *hello there* para conversar, *bye* para terminar. Sesiones de gramática de 15/20 minutos y recordatorios para el calendario. |
+| 📈 **Progreso** | Tu subnivel (cada nivel dividido en 4: B2.1…B2.4, C1.1…), mejora semana a semana y mes a mes, gráfico en la escala Cambridge (C1 = 180), destrezas y puntos débiles. |
 
 ## Tu horario
 
@@ -22,7 +22,7 @@ que se instala en el móvil como una app.
 | Lunes, martes y jueves · 7:40 | Sesión de gramática en el Chat (15 min) |
 | Miércoles y viernes · 8:00 | Sesión de gramática en el Chat (20 min) |
 | Miércoles y viernes | Clase de 1 h 30 |
-| Fin de semana, cuando te venga bien | 4 h entre clase y ejercicios (con ejercicios extra ilimitados) |
+| Fin de semana, cuando te venga bien | 4 h entre clase y ejercicios, con el **examen semanal** (y cada 4 semanas, el **examen mensual**) |
 
 Todo se puede cambiar en **⚙️ Ajustes → Horario**. Para que el móvil te avise,
 pulsa **Chat → Añadir al calendario** y abre el archivo que se descarga.
@@ -31,7 +31,17 @@ Al abrirla por primera vez te pide tu nombre, la fecha del examen y cuánto
 tiempo tienes al día, y te hace un **test de nivel** (25 preguntas, A2→C2)
 para ajustar el plan.
 
-## Conversar con IA gratis (Proyecto de Claude)
+## Profesor IA gratis dentro de la app (Gemini)
+
+1. Entra en <https://aistudio.google.com/apikey> con tu cuenta de Google y pulsa **Create API key**.
+2. En la app: **⚙️ Ajustes → Profesor IA**, deja *Gemini* y pega la clave.
+
+Con eso funcionan el tutor (*hello there* / *bye*), la corrección de writings, el
+Reading y los ejercicios nuevos. Es gratis con un límite de mensajes al día.
+En el plan gratuito Google puede usar las conversaciones para mejorar sus
+modelos: no escribas datos personales sensibles.
+
+## Alternativa: conversar en la app de Claude (Proyecto)
 
 La conversación, las clases particulares, el speaking, el reading y la
 corrección de writings se hacen en la **app de Claude con tu cuenta**, sin

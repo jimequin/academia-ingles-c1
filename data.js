@@ -509,10 +509,10 @@ export const WRITING_TASKS = [
 
 /* ---------- Speaking (para el tutor IA en modo examinador) ---------- */
 export const SPEAKING_PARTS = [
-  { id: 'p1', name: 'Part 1 · Interview', minutes: 2, desc: 'Preguntas personales sobre ti, tus estudios, trabajo y aficiones.' },
-  { id: 'p2', name: 'Part 2 · Long turn', minutes: 4, desc: 'Comparas dos de tres situaciones (descritas por el examinador) durante 1 minuto.' },
-  { id: 'p3', name: 'Part 3 · Collaborative task', minutes: 4, desc: 'Discutes con tu "compañero" (la IA) sobre un tema con 5 opciones y llegáis a un acuerdo.' },
-  { id: 'p4', name: 'Part 4 · Discussion', minutes: 5, desc: 'Preguntas abiertas y más abstractas sobre el tema de la Part 3.' }
+  { id: 'p1', name: 'Part 1 · Interview', minutes: 2, desc: 'Preguntas sobre ti: dónde vives, trabajo o estudios, aficiones, planes (2 min).' },
+  { id: 'p2', name: 'Part 2 · Long turn', minutes: 4, desc: 'Te dan tres fotos y una pregunta: comparas dos de ellas hablando 1 minuto seguido; luego comentas 30 segundos el turno de tu compañero.' },
+  { id: 'p3', name: 'Part 3 · Collaborative task', minutes: 3, desc: 'Con tu "compañero" (la IA) discutís una pregunta con 5 ideas durante 2 minutos y después tenéis 1 minuto para tomar una decisión.' },
+  { id: 'p4', name: 'Part 4 · Discussion', minutes: 5, desc: 'Preguntas más abstractas sobre el tema de la Part 3: das tu opinión, la justificas y respondes a la de tu compañero (5 min).' }
 ];
 
 /* ---------- Vocabulario (tarjetas con repaso espaciado) ---------- */
@@ -541,4 +541,100 @@ export const VOCAB = [
   ['a far cry from', 'muy distinto de'], ['the tip of the iceberg', 'la punta del iceberg'], ['to cut corners', 'hacer algo de forma chapucera para ahorrar'],
   ['to make ends meet', 'llegar a fin de mes'], ['to take for granted', 'dar por sentado'], ['to stand a chance', 'tener posibilidades'],
   ['up to a point', 'hasta cierto punto'], ['for the time being', 'por el momento'], ['as a rule of thumb', 'como regla general']
+];
+
+/* ---------- Guía del examen (según la información oficial de Cambridge) ----------
+   Fuentes: página oficial del formato del C1 Advanced, "Information for
+   candidates", el Handbook for teachers y las guías oficiales de
+   Writing y Speaking (enlaces en EXAM_RESOURCES). Las estrategias son
+   consejos de la academia basados en esos documentos. */
+
+export const EXAM_GUIDE = [
+  {
+    id: 'reading',
+    paper: 'Reading and Use of English',
+    time: '1 h 30 min',
+    summary: '8 partes, 56 preguntas. Da dos notas: Reading (Parts 1, 5, 6, 7 y 8) y Use of English (Parts 2, 3 y 4).',
+    parts: [
+      { name: 'Part 1 · Multiple-choice cloze', what: 'Texto con 8 huecos; eliges entre 4 opciones (A–D).', marks: '8 preguntas · 1 punto cada una', tests: 'Vocabulario: colocaciones, expresiones fijas, phrasal verbs, matices de significado.', tips: ['Lee el texto entero antes de responder.', 'Mira las palabras de alrededor del hueco: muchas veces decide la preposición o la palabra que va detrás.', 'Las 4 opciones suelen significar algo parecido: elige la que encaja con la gramática y la colocación.'] },
+      { name: 'Part 2 · Open cloze', what: 'Texto con 8 huecos; escribes UNA palabra en cada uno.', marks: '8 preguntas · 1 punto cada una', tests: 'Gramática y estructura: preposiciones, artículos, pronombres, auxiliares, conectores, expresiones fijas.', tips: ['Una sola palabra por hueco: no uses contracciones (don\'t son dos palabras).', 'Pregúntate qué tipo de palabra falta antes de pensar cuál.', 'La ortografía tiene que ser correcta.'] },
+      { name: 'Part 3 · Word formation', what: 'Texto con 8 huecos; transformas la palabra en MAYÚSCULAS que aparece al final de la línea.', marks: '8 preguntas · 1 punto cada una', tests: 'Formación de palabras: prefijos, sufijos, cambios internos, plurales y negativos.', tips: ['Decide la categoría (sustantivo, adjetivo, verbo, adverbio).', 'Comprueba si el sentido pide negativo (un-, in-, dis-…) o plural.', 'A veces hay que hacer dos cambios (p. ej. RELY → unreliable).'] },
+      { name: 'Part 4 · Key word transformation', what: '6 frases: reescribes cada una con la palabra clave, sin cambiarla, usando entre 3 y 6 palabras.', marks: '6 preguntas · hasta 2 puntos cada una (1 punto si está bien a medias)', tests: 'Gramática y vocabulario a la vez: pasivas, inversión, condicionales, verbos de reporte, expresiones.', tips: ['No cambies la palabra clave y cuenta las palabras (3–6).', 'El significado debe ser el mismo que la frase original.', 'Aunque no la tengas completa, escribe lo que sepas: puedes sacar 1 punto.'] },
+      { name: 'Part 5 · Multiple choice', what: 'Un texto largo con 6 preguntas de 4 opciones.', marks: '6 preguntas · 2 puntos cada una', tests: 'Detalle, opinión, actitud, tono, propósito, idea principal, implicación y organización del texto (ejemplos, comparaciones, referencias).', tips: ['Las preguntas siguen el orden del texto.', 'Localiza la parte del texto de cada pregunta y léela con atención.', 'Desconfía de las opciones que repiten palabras del texto: suelen ser trampas.'] },
+      { name: 'Part 6 · Cross-text multiple matching', what: 'Cuatro textos cortos sobre el mismo tema (A–D) y 4 preguntas.', marks: '4 preguntas · 2 puntos cada una', tests: 'Comparar opiniones y actitudes entre los textos: quién está de acuerdo o en desacuerdo con quién.', tips: ['Antes de responder, resume en una frase la opinión de cada autor sobre cada aspecto.', 'Las preguntas solo dicen el tema de la opinión: tú tienes que deducir la opinión.', 'Fíjate en palabras de acuerdo o desacuerdo (like A, unlike C…).'] },
+      { name: 'Part 7 · Gapped text', what: 'Texto largo al que le faltan 6 párrafos; eliges entre 7 (sobra uno).', marks: '6 preguntas · 2 puntos cada una', tests: 'Estructura, cohesión y coherencia del texto.', tips: ['Lee primero el texto principal para entender la estructura.', 'Busca pistas de referencia: pronombres (this, they), tiempos verbales, conectores, nombres.', 'Al terminar, relee el texto completo con tus párrafos para comprobar que fluye.'] },
+      { name: 'Part 8 · Multiple matching', what: 'Un texto o varios textos cortos y 10 preguntas en las que dices en qué sección aparece cada idea.', marks: '10 preguntas · 1 punto cada una', tests: 'Encontrar información concreta, detalle, opinión y actitud.', tips: ['Lee las preguntas primero y subraya las palabras clave.', 'El texto dirá la idea con otras palabras (paráfrasis).', 'No pierdas tiempo: es la parte de "escaneo" rápido.'] }
+    ],
+    notes: ['Las respuestas incorrectas no restan.', 'La ortografía tiene que ser correcta para que cuente la respuesta.', 'Repártete el tiempo: unos 40–45 min para Use of English y Part 1, y el resto para las Parts 5–8.']
+  },
+  {
+    id: 'writing',
+    paper: 'Writing',
+    time: '1 h 30 min',
+    summary: '2 tareas de 220–260 palabras cada una.',
+    parts: [
+      { name: 'Part 1 · Essay (obligatoria)', what: 'Lees unas notas de una clase o debate con tres puntos y escribes un ensayo sobre dos de ellos, explicando cuál es más importante/efectivo y por qué.', marks: '220–260 palabras', tests: 'Argumentar, comparar y apoyar una opinión con razones.', tips: ['Elige SOLO dos de los tres puntos y di claramente cuál consideras más importante.', 'Puedes usar las opiniones de las notas, pero con tus propias palabras (no las copies).', 'Estructura típica: introducción · punto 1 · punto 2 · conclusión con tu postura.'] },
+      { name: 'Part 2 · Eliges una tarea', what: 'Una de estas: carta o email, propuesta (proposal), informe (report) o reseña (review).', marks: '220–260 palabras', tests: 'Adaptar el registro y el formato al lector y al propósito.', tips: ['Report y proposal: títulos para cada sección y registro formal; el report habla de algo que ya pasó o existe, la proposal sugiere algo para el futuro.', 'Review: describe y evalúa, y termina con una recomendación clara.', 'Letter/email: piensa en quién lo lee (formal o informal) y responde a todos los puntos.'] }
+    ],
+    notes: [
+      'Criterios oficiales (0–5 cada uno): Content (¿has respondido a todo?), Communicative Achievement (¿registro y formato adecuados al lector?), Organisation (¿texto bien enlazado y en párrafos?) y Language (¿gramática y vocabulario variados y precisos?).',
+      'Planifica 5 minutos, escribe ~30 y revisa 5 en cada tarea.',
+      'Respeta el número de palabras: escribir de menos o de más perjudica la nota.'
+    ]
+  },
+  {
+    id: 'listening',
+    paper: 'Listening',
+    time: 'unos 40 min',
+    summary: '4 partes, 30 preguntas. Cada grabación se oye DOS veces.',
+    parts: [
+      { name: 'Part 1 · Multiple choice', what: 'Tres conversaciones cortas sin relación entre sí; 2 preguntas de 3 opciones (A–C) por cada una.', marks: '6 preguntas', tests: 'Sentimiento, actitud, opinión, propósito, acuerdo entre hablantes, idea general y detalle.', tips: ['Lee la pregunta antes de cada extracto.', 'En la primera escucha elige; en la segunda, confirma.'] },
+      { name: 'Part 2 · Sentence completion', what: 'Una persona habla unos 3 minutos; completas 8 frases con palabras que oyes.', marks: '8 preguntas', tests: 'Información concreta y opiniones expresadas claramente.', tips: ['Lee las frases antes y predice qué tipo de palabra falta.', 'Escribe las palabras exactas que oyes (suelen ser pocas) y revisa la ortografía.'] },
+      { name: 'Part 3 · Multiple choice', what: 'Entrevista o conversación de unos 4 minutos; 6 preguntas de 4 opciones (A–D).', marks: '6 preguntas', tests: 'Actitud, opinión, idea principal, detalle, y lo que se da a entender.', tips: ['Las respuestas siguen el orden de la grabación.', 'Cuidado: a menudo se mencionan todas las opciones, pero solo una responde a la pregunta.'] },
+      { name: 'Part 4 · Multiple matching', what: 'Cinco monólogos cortos (unos 30 segundos) sobre un tema; dos tareas: para cada hablante eliges una opción de una lista de 8 en cada tarea.', marks: '10 preguntas', tests: 'Idea general, actitud, opinión y propósito.', tips: ['Puedes hacer las dos tareas a la vez o una en cada escucha: prueba qué te funciona mejor.', 'Escucha ideas, no palabras sueltas: la respuesta suele estar parafraseada.'] }
+    ],
+    notes: ['Al final tienes 5 minutos para pasar las respuestas a la hoja (en el examen en papel).']
+  },
+  {
+    id: 'speaking',
+    paper: 'Speaking',
+    time: '15 min (en parejas)',
+    summary: '4 partes con otro candidato; un examinador te habla y otro te evalúa.',
+    parts: [
+      { name: 'Part 1 · Interview', what: 'Preguntas sobre ti: trabajo, estudios, aficiones, planes.', marks: '2 min', tests: 'Hablar de forma natural sobre temas cotidianos.', tips: ['Respuestas de 2–3 frases: ni monosílabos ni discursos.', 'Da una razón o un ejemplo en cada respuesta.'] },
+      { name: 'Part 2 · Long turn', what: 'Tres fotos con dos preguntas: hablas 1 minuto comparando dos de ellas; luego respondes ~30 segundos sobre las fotos de tu compañero.', marks: '4 min en total', tests: 'Organizar un discurso largo: comparar, especular y opinar.', tips: ['No describas las fotos: compáralas y responde a las dos preguntas.', 'Especula: It looks as if…, They might have…, I\'d imagine…', 'Usa conectores de comparación: whereas, while, on the other hand.'] },
+      { name: 'Part 3 · Collaborative task', what: 'Una pregunta con 5 ideas: discutís 2 minutos y después tenéis 1 minuto para decidir.', marks: '3 min', tests: 'Interactuar: proponer, preguntar la opinión del otro, estar o no de acuerdo y negociar.', tips: ['No hace falta hablar de las 5 ideas: profundiza en varias.', 'Pregunta a tu compañero (What do you think about…?) y reacciona a lo que dice.', 'En el minuto final, intentad llegar a un acuerdo (no es obligatorio conseguirlo).'] },
+      { name: 'Part 4 · Discussion', what: 'Preguntas más abstractas relacionadas con el tema de la Part 3.', marks: '5 min', tests: 'Dar y justificar opiniones, y desarrollar ideas.', tips: ['Desarrolla: opinión + razón + ejemplo.', 'Puedes reaccionar a lo que dice tu compañero.'] }
+    ],
+    notes: ['Criterios oficiales (0–5): Grammatical Resource, Lexical Resource, Discourse Management, Pronunciation e Interactive Communication; además, el examinador que habla contigo pone una nota global (Global Achievement).']
+  }
+];
+
+export const EXAM_SCORING = {
+  summary: 'Recibes una nota de la Cambridge English Scale en cada una de las 5 partes (Reading, Use of English, Writing, Listening y Speaking). La nota final es la media de las cinco.',
+  bands: [
+    ['200–210', 'Aprobado con Grade A', 'Certificado de nivel C2'],
+    ['193–199', 'Aprobado con Grade B', 'Certificado C1'],
+    ['180–192', 'Aprobado con Grade C', 'Certificado C1'],
+    ['160–179', 'No aprobado', 'Certificado de nivel B2'],
+    ['142–159', 'No aprobado', 'Sin certificado']
+  ]
+};
+
+export const EXAM_RESOURCES = [
+  { title: 'Formato oficial del examen', who: 'Cambridge English', url: 'https://www.cambridgeenglish.org/exams-and-tests/qualifications/advanced/format/' },
+  { title: 'Preparación: tests de muestra gratis (Reading, Use of English, Writing, Listening) y modelos en papel', who: 'Cambridge English', url: 'https://www.cambridgeenglish.org/exams-and-tests/qualifications/advanced/preparation/' },
+  { title: 'Information for candidates (PDF)', who: 'Cambridge English', url: 'https://www.cambridgeenglish.org/Images/610342-c1-advanced-information-for-candidates.pdf' },
+  { title: 'Handbook for teachers: formato, ejemplos y modelos (PDF)', who: 'Cambridge English', url: 'https://www.cambridgeenglish.org/images/167804-c1-advanced-handbook.pdf' },
+  { title: 'Cómo se corrige el Writing, con ejemplos corregidos (PDF)', who: 'Cambridge English', url: 'https://www.cambridgeenglish.org/images/600976-teacher-guide-for-writing-c1-advanced.pdf' },
+  { title: 'Cómo se evalúa el Speaking (PDF)', who: 'Cambridge English', url: 'https://www.cambridgeenglish.org/Images/735851-teacher-guide-for-speaking-c1-advanced.pdf' },
+  { title: 'Escala de evaluación del Speaking (PDF)', who: 'Cambridge English', url: 'https://www.cambridgeenglish.org/images/167865-cambridge-english-advanced-cae-speaking-assessment-scales.pdf' },
+  { title: 'Teaching tips por partes (PDF)', who: 'Cambridge English', url: 'https://www.cambridgeenglish.org/images/167863-c1-advanced-teaching-tips.pdf' },
+  { title: 'Autoaprendizaje: Reading Part 5 (PDF)', who: 'Cambridge English', url: 'https://www.cambridgeenglish.org/Images/583522-c1-advanced-self-access-learning-reading-and-use-of-english-part-5-multiple-choice.pdf' },
+  { title: 'Autoaprendizaje: Listening Part 1 (PDF)', who: 'Cambridge English', url: 'https://www.cambridgeenglish.org/Images/583523-c1-advanced-self-access-learning-listening-part-1-multiple-choice.pdf' },
+  { title: 'Autoaprendizaje: Speaking Part 2 (PDF)', who: 'Cambridge English', url: 'https://www.cambridgeenglish.org/Images/583527-c1-advanced-self-access-learning-speaking-part-2-long-turn.pdf' },
+  { title: 'Resultados y la Cambridge English Scale', who: 'Cambridge English', url: 'https://www.cambridgeenglish.org/exams-and-tests/qualifications/results/' },
+  { title: 'Write & Improve: corrección automática gratis de writings', who: 'Cambridge', url: 'https://writeandimprove.com/' },
+  { title: 'LearnEnglish: nivel C1 (reading, listening, gramática)', who: 'British Council', url: 'https://learnenglish.britishcouncil.org/level/understand-your-level/c1-advanced' },
+  { title: 'LearnEnglish: writing C1 con modelos (essay, report, proposal, review…)', who: 'British Council', url: 'https://learnenglish.britishcouncil.org/free-resources/writing/c1' }
 ];

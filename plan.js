@@ -88,8 +88,10 @@ export function buildPlan(profile) {
     const isLast = i === totalWeeks - 1;
     let test = null;
     if (!isLast) {
-      if (phase === 3 && (i - (p1 + p2)) % 2 === 1) test = 'mock';
-      else if (phase !== 3 && i > 0 && (i + 1) % 4 === 0) test = 'eval';
+      // Cada 4 semanas, examen mensual; en la fase de examen, simulacro
+      // las otras semanas alternas. (El examen semanal es todas las semanas.)
+      if (i > 0 && (i + 1) % 4 === 0) test = 'eval';
+      else if (phase === 3 && (i - (p1 + p2)) % 2 === 1) test = 'mock';
     }
     weeks.push({
       index: i,

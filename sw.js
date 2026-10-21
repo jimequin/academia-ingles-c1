@@ -1,4 +1,4 @@
-const CACHE_NAME = 'academia-c1-v4';
+const CACHE_NAME = 'academia-c1-v5';
 const FILES_TO_CACHE = [
   './',
   './index.html',

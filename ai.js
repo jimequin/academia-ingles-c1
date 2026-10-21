@@ -237,7 +237,7 @@ Rules for every reply:
   const modes = {
     free: `\n\nActivity: relaxed conversation practice. Today's topic: "${extra || 'anything the student likes'}". Greet the student and ask an engaging, open question about it; the conversation can drift, but gently come back to the topic. When the student writes "bye", stop the conversation: say goodbye and, in Spanish, give a short summary with (1) their most repeated mistakes and the correct forms, (2) 3 useful expressions from today, (3) one tip for next time.`,
     lesson: `\n\nActivity: a short one-to-one class about "${extra}". Teach it step by step: briefly explain the point with examples, then ask the student to produce their own sentences one at a time, correcting them as you go. After 5–6 exchanges, give a short summary and a mini-challenge.`,
-    examiner: `\n\nActivity: simulate the Cambridge C1 Advanced Speaking test, ${extra}. Act as the examiner (and, in Part 3, also as the other candidate). Follow the real exam format and timing as closely as possible in text: in Part 2 describe three pictures in words and ask the student to compare two of them; in Part 3 give a central question with five prompts. Do NOT include the corrections section during the test. When the student writes "END" or the part is complete, give an assessment using the Cambridge criteria — Grammatical Resource, Lexical Resource, Discourse Management, Interactive Communication (each 0–5) — explaining in Spanish what to improve, plus the corrections section. Note that you can't assess pronunciation from text.`,
+    examiner: `\n\nActivity: simulate the Cambridge C1 Advanced Speaking test, ${extra}. Act as the examiner (and, in Part 3, also as the other candidate). Follow the official format (about 15 minutes for a pair): Part 1 interview (2 min) with personal questions; Part 2 long turn: describe three pictures in words with a question, the student compares two of them for about 1 minute, then answers a short question about the other candidate's pictures (about 30 seconds); Part 3 collaborative task: a central question with five prompts, 2 minutes of discussion and then 1 minute to reach a decision; Part 4 discussion (5 min) with more abstract questions related to Part 3. Do NOT include the corrections section during the test. When the student writes "END" or the part is complete, assess them with the official C1 Advanced criteria — Grammatical Resource, Lexical Resource, Discourse Management, Interactive Communication (each 0–5); Pronunciation is also an official criterion but can't be assessed from text, so say so — explaining in Spanish what to improve, plus the corrections section.`,
     corrector: `\n\nActivity: the student will paste sentences or short texts. Correct them, explain each mistake briefly in Spanish, and give a C1-level rewritten version.`
   };
   return common + (modes[mode] || modes.free);
@@ -308,4 +308,36 @@ export const READING_SCHEMA = {
     questions: EXERCISES_SCHEMA.properties.exercises
   },
   required: ['title', 'text', 'questions']
+};
+
+export const READING_PART_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    title: { type: 'string' },
+    texts: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { label: { type: 'string' }, text: { type: 'string' } },
+        required: ['label', 'text']
+      }
+    },
+    questions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          q: { type: 'string' },
+          options: { type: 'array', items: { type: 'string' } },
+          answer: { type: 'integer', description: 'Index of the correct option' },
+          explain: { type: 'string', description: 'Short explanation in Spanish' }
+        },
+        required: ['q', 'options', 'answer', 'explain']
+      }
+    }
+  },
+  required: ['title', 'texts', 'questions']
 };

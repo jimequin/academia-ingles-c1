@@ -4,9 +4,9 @@
    clave: 'academia.v1'. No hay servidor.
    ========================================================== */
 
-import { PLACEMENT, LESSONS, UOE, DICTATIONS, LISTENINGS, WRITING_TASKS, SPEAKING_PARTS, VOCAB } from './data.js';
+import { PLACEMENT, LESSONS, UOE, DICTATIONS, LISTENINGS, WRITING_TASKS, SPEAKING_PARTS, VOCAB, EXAM_GUIDE, EXAM_SCORING, EXAM_RESOURCES } from './data.js';
 import { dateKey, parseDate, addDays, daysBetween, buildPlan as buildPlanFor, weekForDate, CHAT_SESSIONS, DEFAULT_SCHEDULE, weeklyMinutes, grammarFocus } from './plan.js';
-import { MODELS, DEFAULT_MODEL, PROVIDERS, GEMINI_MODELS, DEFAULT_GEMINI_MODEL, aiReady, chat, askJson, tutorSystem, writingSystem, WRITING_SCHEMA, EXERCISES_SCHEMA, READING_SCHEMA } from './ai.js';
+import { MODELS, DEFAULT_MODEL, PROVIDERS, GEMINI_MODELS, DEFAULT_GEMINI_MODEL, aiReady, chat, askJson, tutorSystem, writingSystem, WRITING_SCHEMA, EXERCISES_SCHEMA, READING_SCHEMA, READING_PART_SCHEMA } from './ai.js';
 
 /* ==========================================================
    1. Estado y guardado
@@ -122,6 +122,16 @@ function pctToScale(pct) {
   if (p < 80) return Math.round(180 + ((p - 60) / 20) * 20);
   return Math.round(200 + ((p - 80) / 20) * 10);
 }
+// Subniveles: cada nivel del MCER se divide en 4 (B2.1 … B2.4) según la
+// puntuación en la Cambridge English Scale (cada nivel ocupa 20 puntos).
+const LEVEL_BANDS = [['C2', 200], ['C1', 180], ['B2', 160], ['B1', 140], ['A2', 120]];
+function subLevel(scale) {
+  for (const [name, lo] of LEVEL_BANDS) {
+    if (scale >= lo) return `${name}.${Math.min(4, Math.floor((scale - lo) / 5) + 1)}`;
+  }
+  return 'A1';
+}
+
 function scaleToLabel(scale) {
   if (scale >= 200) return 'C2 (grado A)';
   if (scale >= 193) return 'C1 (grado B)';
@@ -157,7 +167,8 @@ const KIND_INFO = {
   writing2: { emoji: '✍️', label: 'Writing extra', minutes: 45 },
   speaking: { emoji: '🗣️', label: 'Speaking con el tutor', minutes: 15 },
   review: { emoji: '🔄', label: 'Repaso de la semana', minutes: 20 },
-  eval: { emoji: '📝', label: 'Evaluación mensual', minutes: 40 },
+  eval: { emoji: '📝', label: 'Examen mensual', minutes: 40 },
+  weekly: { emoji: '🧪', label: 'Examen semanal (lo de esta semana)', minutes: 25 },
   mock: { emoji: '🏁', label: 'Simulacro de examen', minutes: 90 },
   placement: { emoji: '🎯', label: 'Test de nivel', minutes: 20 },
   drill: { emoji: '💬', label: 'Sesión de gramática en el Chat', minutes: 15 },
@@ -208,7 +219,8 @@ function dayPlan(d) {
     let cls = WEEKEND_CLASS.slice();
     let ex = WEEKEND_EXERCISES.slice();
     if (week.lessons.length < 2) cls = cls.filter((k) => k !== 'lesson2');
-    if (week.test) ex = [week.test, ...ex.slice(0, week.test === 'mock' ? 3 : 5)];
+    ex = ['weekly', ...ex];
+    if (week.test) ex = [week.test, ...ex.slice(0, week.test === 'mock' ? 4 : 6)];
     if (week.isLast) { cls = ['review', 'speaking']; ex = ['vocab', 'listening']; }
     const clsMin = cls.reduce((acc, k) => acc + KIND_INFO[k].minutes, 0);
     sections.push({ title: `👩‍🏫 Clase de fin de semana (~${fmtMin(clsMin)})`, kinds: cls });
@@ -310,6 +322,7 @@ function openKind(kind, week) {
     case 'writing': return startWriting(week.writing);
     case 'speaking': return aiReady(state.settings) ? openTutor('examiner', week.speaking) : openInClaude(claudePromptFor('speaking', week));
     case 'eval': return startEvaluation();
+    case 'weekly': return startWeeklyExam();
     case 'mock': return startMock();
     case 'placement': return startPlacement();
   }
@@ -660,7 +673,7 @@ function renderHoy() {
     <div class="kpis">
       <div class="kpi"><b>${streak()}🔥</b><span>días seguidos</span></div>
       <div class="kpi"><b>${totalHours().toFixed(1)}h</b><span>estudiadas</span></div>
-      <div class="kpi"><b>${lastTest ? lastTest.scale : '—'}</b><span>${lastTest ? esc(scaleToLabel(lastTest.scale)) : 'sin evaluar'}</span></div>
+      <div class="kpi"><b>${lastTest ? subLevel(lastTest.scale) : '—'}</b><span>${lastTest ? `${lastTest.scale} · ${esc(scaleToLabel(lastTest.scale))}` : 'sin evaluar'}</span></div>
     </div>
     <div class="card">
       <div class="spread"><h3>${title}</h3>${tasks.length ? `<span class="tag ${doneCount === tasks.length ? 'ok' : ''}">${doneCount}/${tasks.length}</span>` : ''}</div>
@@ -781,13 +794,14 @@ function renderPlan() {
       }).join(' ');
       html += `<details class="week ${isCur ? 'current' : ''} ${past ? 'past' : ''}" ${isCur ? 'open' : ''}>
         <summary><span>Semana ${w.index + 1} · ${fmtDate(w.start)}–${fmtDate(w.end)}</span>
-        <span>${w.test === 'eval' ? '<span class="tag warn">Evaluación</span>' : w.test === 'mock' ? '<span class="tag bad">Simulacro</span>' : ''}${w.isLast ? '<span class="tag ok">Examen</span>' : ''}${isCur ? ' <span class="tag ok">Ahora</span>' : ''}</span></summary>
+        <span>${w.test === 'eval' ? '<span class="tag warn">Examen mensual</span>' : w.test === 'mock' ? '<span class="tag bad">Simulacro</span>' : ''}${w.isLast ? '<span class="tag ok">Examen</span>' : ''}${isCur ? ' <span class="tag ok">Ahora</span>' : ''}</span></summary>
         <ul>
           ${lessonsTxt ? `<li>📚 Clases: ${esc(lessonsTxt)}</li>` : '<li>🔄 Repaso de tus puntos débiles (mira Progreso)</li>'}
           <li>🧩 Use of English: Part ${w.uoePart} y Part 4</li>
           <li>✍️ Writing: ${esc(wt.genre)}</li>
           <li>🗣️ Speaking: ${esc(sp.name)}</li>
-          ${w.test === 'eval' ? '<li>📝 Fin de semana: evaluación mensual</li>' : ''}
+          <li>🧪 Fin de semana: examen semanal de lo aprendido</li>
+          ${w.test === 'eval' ? '<li>📝 Fin de semana: examen mensual</li>' : ''}
           ${w.test === 'mock' ? '<li>🏁 Fin de semana: simulacro cronometrado</li>' : ''}
           ${w.isLast ? '<li>🎓 Semana del examen: solo repaso ligero, vocabulario y conversación</li>' : ''}
         </ul>
@@ -805,13 +819,37 @@ function renderPlan() {
 function renderClases() {
   const el = $('#view-clases');
   el.innerHTML = `<h2>Clases</h2>
+    <button class="tile" id="guideBtn" style="margin-bottom:12px"><span class="emoji">📘</span><b>Guía oficial del examen</b><span class="muted">Formato de cada parte, puntuación, criterios de corrección, estrategias y recursos oficiales gratis.</span></button>
     <p class="muted">Cada clase tiene teoría en español, ejemplos, errores típicos y ejercicios corregidos al momento. Puedes repetirlas las veces que quieras.</p>
     <div class="stack">${LESSONS.map((l) => {
       const best = state.lessons[l.id];
       const tag = best == null ? '<span class="tag">Pendiente</span>' : `<span class="tag ${best >= 0.8 ? 'ok' : best >= 0.6 ? 'warn' : 'bad'}">${Math.round(best * 100)}%</span>`;
       return `<button class="tile" data-id="${l.id}"><div class="spread"><span class="muted small">${l.skill === 'grammar' ? 'Gramática' : l.skill === 'vocab' ? 'Vocabulario' : 'Writing'}</span>${tag}</div><b>${esc(l.title)}</b><span class="muted">${esc(l.summary)}</span></button>`;
     }).join('')}</div>`;
-  $$('.tile', el).forEach((b) => (b.onclick = () => openLesson(b.dataset.id)));
+  $$('.tile[data-id]', el).forEach((b) => (b.onclick = () => openLesson(b.dataset.id)));
+  $('#guideBtn', el).onclick = openGuide;
+}
+
+function openGuide() {
+  const body = activity('📘 Guía del examen', 'clases');
+  body.innerHTML = `<div class="notice">Basada en la información oficial de Cambridge English (enlaces abajo). El examen dura unas 4 horas en total y tiene 4 papers.</div>
+    ${EXAM_GUIDE.map((g) => `<details class="week">
+      <summary><span>${esc(g.paper)}</span><span class="muted small">${esc(g.time)}</span></summary>
+      <p class="small" style="margin-top:8px">${esc(g.summary)}</p>
+      ${g.parts.map((pt) => `<div class="card" style="margin:8px 0">
+        <h3>${esc(pt.name)}</h3>
+        <p class="small">${esc(pt.what)}</p>
+        <p class="small"><b>Puntuación/tiempo:</b> ${esc(pt.marks)}<br><b>Qué evalúa:</b> ${esc(pt.tests)}</p>
+        <ul class="small">${pt.tips.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
+      </div>`).join('')}
+      ${g.notes.length ? `<ul class="small">${g.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
+    </details>`).join('')}
+    <div class="card"><h3>🎯 Cómo se puntúa</h3><p class="small">${esc(EXAM_SCORING.summary)}</p>
+      <table><tr><th>Escala</th><th>Resultado</th><th>Certificado</th></tr>${EXAM_SCORING.bands.map((b) => `<tr><td>${b[0]}</td><td>${esc(b[1])}</td><td>${esc(b[2])}</td></tr>`).join('')}</table>
+      <p class="muted small" style="margin-top:8px">Las notas de la app (evaluaciones y simulacros) son una <b>estimación</b> en esta escala.</p></div>
+    <div class="card"><h3>🔗 Recursos oficiales y gratuitos</h3>
+      <p class="muted small">Los tests de muestra oficiales son la mejor práctica: hazlos en las semanas de simulacro.</p>
+      <ul class="small">${EXAM_RESOURCES.map((r) => `<li><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a> <span class="muted">· ${esc(r.who)}</span></li>`).join('')}</ul></div>`;
 }
 
 function openLesson(id) {
@@ -880,10 +918,11 @@ function renderPractica() {
     ['uoe4', '🔁', 'Use of English · Part 4', 'Key word transformations'],
     ['dictation', '🎧', 'Dictado', 'Escucha y escribe frases de nivel B2–C2'],
     ['listening', '👂', 'Listening', 'Escucha un texto y responde (2 escuchas, como en el examen)'],
-    ['reading', '📖', 'Reading (IA)', 'Textos nuevos tipo examen con preguntas'],
+    ['reading', '📖', 'Reading · Parts 5–8 (IA)', 'Textos nuevos con el formato oficial de cada parte'],
     ['writing', '✍️', 'Writing', 'Essay, report, proposal, review, letter… corregido con criterios Cambridge'],
     ['vocab', '🃏', 'Vocabulario', 'Tarjetas con repaso espaciado'],
-    ['eval', '📝', 'Evaluación', 'Test mixto que estima tu nota en la escala Cambridge'],
+    ['weekly', '🧪', 'Examen semanal', 'Lo que has aprendido esta semana y tu mejora'],
+    ['eval', '📝', 'Examen mensual', 'Lo del último mes: nota en la escala Cambridge y subnivel'],
     ['mock', '🏁', 'Simulacro', 'Examen cronometrado: Use of English + Listening + Writing'],
     ['placement', '🎯', 'Test de nivel', 'Vuelve a medir tu nivel MCER']
   ];
@@ -891,7 +930,7 @@ function renderPractica() {
   const actions = {
     uoe1: () => startUoePart(1), uoe2: () => startUoePart(2), uoe3: () => startUoePart(3), uoe4: () => startUoePart(4),
     dictation: startDictation, listening: startListening, reading: startReading, writing: () => startWriting(),
-    vocab: startVocab, eval: startEvaluation, mock: startMock, placement: startPlacement
+    vocab: startVocab, eval: startEvaluation, weekly: startWeeklyExam, mock: startMock, placement: startPlacement
   };
   $$('.tile', el).forEach((b) => (b.onclick = actions[b.dataset.id]));
 }
@@ -1057,28 +1096,59 @@ async function aiPassage(kind) {
 
 /* ---------- Reading ---------- */
 
+// Formato oficial de cada parte de Reading (para pedírselo al profesor IA)
+const READING_PARTS = {
+  5: { name: 'Part 5 · Multiple choice', minutes: 15, prompt: 'Reading Part 5: ONE long text (about 650 words) from a magazine, newspaper or non-fiction book, with opinion and implication. In "texts" put a single item with label "". Then exactly 6 questions with 4 options each (A–D) testing detail, opinion, attitude, tone, purpose, main idea, implication and text organisation, in the same order as the text.' },
+  6: { name: 'Part 6 · Cross-text multiple matching', minutes: 12, prompt: 'Reading Part 6: FOUR short texts (about 150 words each) by four different writers giving their views on the same topic, labelled "A", "B", "C" and "D". Then exactly 4 questions about agreement and disagreement between the writers, e.g. "Which writer has a different view from the others on …?" or "Which writer shares B\'s opinion about …?". Each question has the 4 options ["A","B","C","D"].' },
+  7: { name: 'Part 7 · Gapped text', minutes: 15, prompt: 'Reading Part 7: ONE long text (about 700 words) from which 6 paragraphs have been removed; mark the gaps in the text as [1] … [6]. Put the main text as the first item of "texts" with label "Text", then the 7 removed paragraphs (the 6 correct ones in random order plus 1 extra paragraph that fits nowhere) as items labelled "A" to "G". Then exactly 6 questions: "Gap 1" … "Gap 6", each with the options ["A","B","C","D","E","F","G"]. The paragraphs must be linkable through reference words, tenses and linkers.' },
+  8: { name: 'Part 8 · Multiple matching', minutes: 12, prompt: 'Reading Part 8: one text divided into 4 sections (or 4 short texts), about 150–180 words each, labelled "A" to "D" (for example four people talking about their jobs). Then exactly 10 questions such as "Which person … mentions feeling nervous at first?", each with the options ["A","B","C","D"]. Ideas must be paraphrased, not copied word for word.' }
+};
+
 function startReading() {
   const body = activity('Reading', 'practica');
   if (!aiReady(state.settings)) {
-    body.innerHTML = `<div class="card"><h3>Reading gratis en Claude</h3>
+    body.innerHTML = `<div id="rkey"></div><div class="card"><h3>…o hazlo gratis en Claude</h3>
       <p class="muted">Claude te prepara un texto nuevo tipo examen con sus preguntas y luego te corrige. Pulsa el botón, pega el mensaje en tu proyecto y responde allí.</p>
       <button class="btn primary block" id="readClaude">Abrir reading en Claude</button>
       <button class="btn block ghost" id="readDone" style="margin-top:6px">✓ Ya lo he hecho</button></div>`;
-    $('#readClaude', body).onclick = () => openInClaude('Reading: give me a C1 Advanced Reading Part 5 text (about 500 words, from a magazine or non-fiction book) with 6 multiple-choice questions. Wait for my answers before correcting them.');
+    needKey($('#rkey', body));
+    $('#readClaude', body).onclick = () => openInClaude('Reading: give me a C1 Advanced Reading Part 5 text (about 650 words, from a magazine or non-fiction book) with 6 multiple-choice questions. Wait for my answers before correcting them.');
     $('#readDone', body).onclick = () => { logActivity('reading', null, 'Reading en Claude'); toast('¡Apuntado!'); show('hoy'); };
     return;
   }
-  body.innerHTML = '<div class="card"><p class="muted">✨ Preparando un texto nuevo tipo examen (Part 5)… tarda unos segundos.</p></div>';
-  aiPassage('reading').then((data) => {
-    body.innerHTML = `<div class="notice">⏱️ En el examen tienes unos 15 minutos para esta parte. Lee primero el texto completo y luego las preguntas.</div>
-      <div class="card"><h3>${esc(data.title)}</h3>${data.text.split(/\n+/).map((p) => `<p>${esc(p)}</p>`).join('')}</div><div id="rq"></div>`;
-    const items = data.questions.map((q) => ({ type: 'mc', ...q }));
-    renderQuiz($('#rq', body), items, {
-      onDone: (c, t) => { logActivity('reading', c / t, data.title); $('#rq .quiz-result', body).innerHTML = resultCard(c, t); }
+  body.innerHTML = `<p class="muted">El profesor IA prepara un texto nuevo con el formato oficial de la parte que elijas.</p>
+    <div class="stack">${Object.entries(READING_PARTS).map(([n, p]) => `<button class="tile" data-part="${n}"><b>${esc(p.name)}</b><span class="muted">${esc(EXAM_GUIDE[0].parts[n - 1].what)}</span></button>`).join('')}</div>`;
+  $$('[data-part]', body).forEach((b) => (b.onclick = () => readingPart(Number(b.dataset.part))));
+}
+
+async function readingPart(n) {
+  const part = READING_PARTS[n];
+  const body = activity(`Reading · ${part.name}`, 'practica');
+  body.innerHTML = '<div class="card"><p class="muted">✨ Preparando un texto nuevo tipo examen… tarda unos segundos.</p></div>';
+  const topics = ['science', 'work and careers', 'the environment', 'psychology', 'technology', 'travel', 'education', 'health', 'urban life', 'the arts', 'history', 'sport'];
+  const topic = topics[Math.floor(Math.random() * topics.length)];
+  try {
+    const data = await askJson(state.settings, {
+      system: 'You write authentic Cambridge C1 Advanced Reading materials following the official exam specifications. Every question must have exactly one defensible answer. Explanations ("explain") are short and in Spanish.',
+      prompt: `${part.prompt}\nTopic: ${topic}. British English, C1 level.`,
+      schema: READING_PART_SCHEMA,
+      effort: 'low'
     });
-  }).catch((e) => {
-    body.innerHTML = `<div class="notice warn">${esc(e.message)}</div>`;
-  });
+    const qs = data.questions.filter((q) => q.options.length >= 2 && q.answer >= 0 && q.answer < q.options.length);
+    if (!qs.length) throw new Error('La IA no ha preparado bien las preguntas. Inténtalo de nuevo.');
+    const tip = EXAM_GUIDE[0].parts[n - 1].tips[0];
+    body.innerHTML = `<div class="notice">⏱️ Unos ${part.minutes} minutos en el examen. 💡 ${esc(tip)}</div>
+      ${data.texts.map((t) => `<div class="card">${t.label ? `<h3>${esc(t.label)}</h3>` : `<h3>${esc(data.title)}</h3>`}${t.text.split(/\n+/).map((p) => `<p>${esc(p)}</p>`).join('')}</div>`).join('')}
+      <div id="rq"></div>
+      <button class="btn small" id="another" style="margin-top:12px">✨ Otro texto de esta parte</button>`;
+    renderQuiz($('#rq', body), qs.map((q) => ({ type: 'mc', ...q })), {
+      onDone: (c, t) => { logActivity('reading', c / t, `${part.name}: ${data.title}`); $('#rq .quiz-result', body).innerHTML = resultCard(c, t); }
+    });
+    $('#another', body).onclick = () => readingPart(n);
+  } catch (e) {
+    body.innerHTML = `<div class="notice warn">${esc(e.message)}</div><button class="btn" id="retry">Reintentar</button>`;
+    $('#retry', body).onclick = () => readingPart(n);
+  }
 }
 
 /* ---------- Writing ---------- */
@@ -1293,8 +1363,8 @@ function startPlacement() {
       state.tests.push({ date: dateKey(), type: 'placement', pct: c / t, scale, level, breakdown: byLevel });
       state.profile.level = level === 'A1' ? 'A2' : level;
       logActivity('placement', c / t, 'Nivel ' + level);
-      $('#pq .quiz-result', body).innerHTML = `<div class="card"><p class="muted">Tu nivel estimado</p><div class="score-big">${level}</div>
-        <p class="muted">≈ ${scale} en la escala Cambridge (C1 se aprueba con 180).</p>
+      $('#pq .quiz-result', body).innerHTML = `<div class="card"><p class="muted">Tu nivel estimado</p><div class="score-big">${subLevel(scale)}</div>
+        <p class="muted">≈ ${scale} en la escala Cambridge (C1 se aprueba con 180). Cada nivel se divide en 4 subniveles: por ejemplo B2.1 es el comienzo de B2 y B2.4, casi C1.</p>
         <table><tr>${LEVELS.map((L) => `<th>${L}</th>`).join('')}</tr><tr>${LEVELS.map((L) => `<td>${byLevel[L]}/5</td>`).join('')}</tr></table>
         <p style="margin-top:10px">Tu cronograma se ha ajustado a este nivel. Este test solo mide gramática y vocabulario: tu writing y speaking los iremos evaluando con las tareas semanales.</p>
         <button class="btn primary" id="toPlan">Ver mi plan</button></div>`;
@@ -1303,29 +1373,81 @@ function startPlacement() {
   });
 }
 
-function startEvaluation() {
-  const body = activity('Evaluación mensual', 'practica');
-  // Prioriza las clases ya vistas; si aún no hay, usa todas
-  const seen = LESSONS.filter((l) => state.lessons[l.id] != null);
-  const lessonItems = pick((seen.length >= 3 ? seen : LESSONS).flatMap((l) => l.exercises), 8);
-  const p1 = UOE.part1[Math.floor(Math.random() * UOE.part1.length)];
-  const p3 = UOE.part3[Math.floor(Math.random() * UOE.part3.length)];
+// Mezcla de preguntas del banco para un examen: de las clases indicadas,
+// más una parte de Use of English en formato examen.
+function examItems(lessonIds, nLessons, nUoe) {
+  const bank = questionBank();
+  const fromLessons = shuffle(bank.filter((q) => lessonIds.includes(q.lesson))).slice(0, nLessons);
+  const uoe = shuffle(bank.filter((q) => !q.lesson)).slice(0, nUoe + (nLessons - fromLessons.length));
+  return shuffle([...fromLessons, ...uoe]);
+}
+
+// Compara con el examen anterior del mismo tipo
+function progressHtml(type, scale) {
+  const prev = state.tests.filter((t) => t.type === type);
+  const before = prev[prev.length - 2];
+  if (!before) return '<p class="muted small">Es tu primer examen de este tipo: el próximo te dirá cuánto has mejorado.</p>';
+  const diff = scale - before.scale;
+  const icon = diff > 0 ? '📈' : diff < 0 ? '📉' : '➡️';
+  return `<p>${icon} Antes: <b>${subLevel(before.scale)}</b> (${before.scale}) → ahora: <b>${subLevel(scale)}</b> (${scale}) · ${diff > 0 ? '+' : ''}${diff} puntos</p>`;
+}
+
+function lessonBreakdown(detail) {
+  const by = {};
+  detail.forEach((d) => {
+    const id = d.item.lesson || 'uoe';
+    by[id] = by[id] || [0, 0];
+    by[id][1]++;
+    if (d.ok) by[id][0]++;
+  });
+  return `<table><tr><th>Tema</th><th>Aciertos</th></tr>${Object.entries(by).map(([id, [c, t]]) => {
+    const l = LESSONS.find((x) => x.id === id);
+    return `<tr><td>${l ? `<a href="#" data-lesson="${id}">${esc(l.title)}</a>` : 'Use of English (formato examen)'}</td><td>${c}/${t}${c / t < 0.6 ? ' ⚠️' : ''}</td></tr>`;
+  }).join('')}</table><p class="muted small">⚠️ = repasa esa clase (toca el nombre para abrirla).</p>`;
+}
+
+function finishExam(body, sel, type, label, c, t, detail, extra = {}) {
+  const pct = c / t;
+  const scale = pctToScale(pct);
+  state.tests.push({ date: dateKey(), type, pct, scale, ...extra });
+  logActivity(type, pct, label);
+  $(sel + ' .quiz-result', body).innerHTML = resultCard(c, t, `<p>Nivel estimado: <b>${subLevel(scale)}</b> · ${scale} en la escala Cambridge (${scaleToLabel(scale)})</p>
+    ${progressHtml(type, scale)}<h3>Por temas</h3>${lessonBreakdown(detail)}`);
+  $$(sel + ' [data-lesson]', body).forEach((a) => (a.onclick = (e) => { e.preventDefault(); openLesson(a.dataset.lesson); }));
+}
+
+// Examen semanal: lo aprendido esta semana + un poco de repaso
+function startWeeklyExam() {
+  const body = activity('🧪 Examen semanal', 'hoy');
+  const plan = buildPlan();
+  const week = plan ? weekForDate(plan, new Date()) : null;
+  const focus = plan ? grammarFocus(plan, new Date()) : { current: LESSONS.slice(0, 2), review: [] };
+  const cur = focus.current.map((l) => l.id);
   const items = [
-    ...lessonItems,
-    ...pick(examTextToItems(1, p1), 4),
-    ...pick(examTextToItems(3, p3), 4),
-    ...pick(UOE.part4, 4)
-  ];
-  body.innerHTML = `<div class="notice">20 preguntas mezcladas (gramática, vocabulario, word formation y transformaciones). Al terminar verás tu puntuación estimada en la escala Cambridge.</div><div id="eq"></div>`;
+    ...examItems(cur, 12, 0),
+    ...examItems(focus.review.map((l) => l.id), 4, 4).slice(0, 8)
+  ].filter((q, i, arr) => arr.findIndex((x) => x.id === q.id) === i).slice(0, 20);
+  body.innerHTML = `<div class="notice">${items.length} preguntas sobre lo de esta semana (${focus.current.map((l) => esc(l.title)).join(', ')}) y algo de repaso. Al final verás tu subnivel y la mejora respecto a la semana pasada.</div><div id="wq"></div>`;
+  renderQuiz($('#wq', body), items, {
+    submitLabel: 'Terminar examen semanal',
+    onDone: (c, t, detail) => finishExam(body, '#wq', 'weekly', `Semana ${week ? week.index + 1 : ''}`, c, t, detail, { week: week ? week.index : null })
+  });
+}
+
+// Examen mensual: lo de las últimas 4 semanas + Use of English
+function startEvaluation() {
+  const body = activity('📝 Examen mensual', 'practica');
+  const plan = buildPlan();
+  const week = plan ? weekForDate(plan, new Date()) : null;
+  let ids = [];
+  if (plan && week) ids = plan.weeks.slice(Math.max(0, week.index - 3), week.index + 1).flatMap((w) => w.lessons);
+  if (!ids.length) ids = LESSONS.filter((l) => state.lessons[l.id] != null).map((l) => l.id);
+  if (!ids.length) ids = LESSONS.map((l) => l.id);
+  const items = examItems(ids, 16, 14);
+  body.innerHTML = `<div class="notice">${items.length} preguntas: lo aprendido en el último mes y Use of English en formato examen (Parts 1–4). Al final verás tu nota en la escala Cambridge, tu subnivel y si has mejorado respecto al mes pasado.</div><div id="eq"></div>`;
   renderQuiz($('#eq', body), items, {
-    submitLabel: 'Terminar evaluación',
-    onDone: (c, t) => {
-      const pct = c / t;
-      const scale = pctToScale(pct);
-      state.tests.push({ date: dateKey(), type: 'eval', pct, scale });
-      logActivity('eval', pct, 'Evaluación mensual');
-      $('#eq .quiz-result', body).innerHTML = resultCard(c, t, `<p>Puntuación estimada: <b>${scale}</b> — ${scaleToLabel(scale)}</p><p class="muted small">Revisa arriba las explicaciones de lo que has fallado y repite esas clases.</p>`);
-    }
+    submitLabel: 'Terminar examen mensual',
+    onDone: (c, t, detail) => finishExam(body, '#eq', 'eval', 'Examen mensual', c, t, detail)
   });
 }
 
@@ -1916,12 +2038,12 @@ function chartSvg(tests) {
   const y = (v) => H - pad - ((v - min) / (max - min)) * (H - pad * 2);
   const x = (i) => (tests.length === 1 ? W / 2 : pad + (i * (W - pad * 2)) / (tests.length - 1));
   const pts = tests.map((t, i) => `${x(i)},${y(t.scale)}`).join(' ');
-  const grid = [140, 160, 180, 200].map((v) => `<line class="axis" x1="${pad}" x2="${W - 8}" y1="${y(v)}" y2="${y(v)}"/><text x="2" y="${y(v) + 4}">${v}</text>`).join('');
+  const grid = [[140, 'B1'], [160, 'B2'], [180, 'C1'], [200, 'C2']].map(([v, n]) => `<line class="axis" x1="${pad}" x2="${W - 8}" y1="${y(v)}" y2="${y(v)}"/><text x="2" y="${y(v) + 4}">${v}</text><text x="${pad + 4}" y="${y(v) - 4}">${n}.1</text>`).join('');
   return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Evolución de tu puntuación">
     ${grid}<line class="target" x1="${pad}" x2="${W - 8}" y1="${y(180)}" y2="${y(180)}"/>
     <text x="${W - 70}" y="${y(180) - 6}">C1 = 180</text>
     <polyline class="line" points="${pts}"/>
-    ${tests.map((t, i) => `<circle class="dot" cx="${x(i)}" cy="${y(t.scale)}" r="4"><title>${t.date}: ${t.scale}</title></circle>`).join('')}
+    ${tests.map((t, i) => `<circle class="dot" cx="${x(i)}" cy="${y(t.scale)}" r="${t.type === 'weekly' ? 3 : 6}"><title>${t.date} · ${t.type}: ${t.scale} (${subLevel(t.scale)})</title></circle>`).join('')}
   </svg>`;
 }
 
@@ -1929,14 +2051,14 @@ function renderProgreso() {
   const el = $('#view-progreso');
   const tests = state.tests;
   const last = tests[tests.length - 1];
-  const typeName = { placement: 'Test de nivel', eval: 'Evaluación', mock: 'Simulacro' };
+  const typeName = { placement: 'Test de nivel', eval: 'Examen mensual', weekly: 'Examen semanal', mock: 'Simulacro' };
   const daysLeft = state.profile ? daysBetween(new Date(), parseDate(state.profile.examDate)) : 0;
   const weakest = LESSONS.filter((l) => state.lessons[l.id] != null && state.lessons[l.id] < 0.7);
   const writingAvg = state.writings.length ? state.writings.slice(-5).reduce((a, w) => a + w.total, 0) / Math.min(5, state.writings.length) : null;
 
   el.innerHTML = `<h2>Tu progreso</h2>
     <div class="kpis">
-      <div class="kpi"><b>${last ? last.scale : '—'}</b><span>última nota (escala)</span></div>
+      <div class="kpi"><b>${last ? subLevel(last.scale) : '—'}</b><span>${last ? `última nota: ${last.scale}` : 'sin notas aún'}</span></div>
       <div class="kpi"><b>${state.profile && state.profile.level ? state.profile.level : '—'}</b><span>nivel del test</span></div>
       <div class="kpi"><b>${Math.max(0, daysLeft)}</b><span>días al examen</span></div>
     </div>
@@ -1950,8 +2072,18 @@ function renderProgreso() {
       ${writingAvg != null ? `<p class="small">Writing (IA, últimas 5): <b>${writingAvg.toFixed(1)}/20</b> — en el examen el aprobado C1 está en torno a 12/20 por tarea.</p>` : ''}
     </div>
     ${weakest.length ? `<div class="card"><h3>Puntos débiles</h3><p class="muted small">Clases con menos de 70%. Repítelas o pide una clase al tutor.</p>${weakest.map((l) => `<button class="btn small" data-lesson="${l.id}" style="margin:0 6px 6px 0">${esc(l.title)} · ${Math.round(state.lessons[l.id] * 100)}%</button>`).join('')}</div>` : ''}
-    <div class="card"><h3>Historial de evaluaciones</h3>
-      ${tests.length ? `<table><tr><th>Fecha</th><th>Tipo</th><th>%</th><th>Escala</th></tr>${tests.slice().reverse().map((t) => `<tr><td>${t.date}</td><td>${typeName[t.type] || t.type}</td><td>${Math.round(t.pct * 100)}%</td><td>${t.scale}${t.level ? ' · ' + t.level : ''}</td></tr>`).join('')}</table>` : '<p class="muted">Aún no hay evaluaciones.</p>'}
+    ${['weekly', 'eval'].map((type) => {
+      const list = tests.filter((t) => t.type === type).slice(-6);
+      if (!list.length) return '';
+      return `<div class="card"><h3>${type === 'weekly' ? '🧪 Mejora semana a semana' : '📝 Mejora mes a mes'}</h3>
+        <table><tr><th>Fecha</th><th>Subnivel</th><th>Escala</th><th>Cambio</th></tr>${list.map((t, i) => {
+          const d = i ? t.scale - list[i - 1].scale : null;
+          return `<tr><td>${t.date}</td><td><b>${subLevel(t.scale)}</b></td><td>${t.scale}</td><td>${d == null ? '—' : (d > 0 ? '📈 +' : d < 0 ? '📉 ' : '➡️ ') + d}</td></tr>`;
+        }).join('')}</table></div>`;
+    }).join('')}
+    <div class="card"><h3>Historial de exámenes</h3>
+      <p class="muted small">Cada nivel se divide en 4 subniveles según la escala Cambridge: B2.1 (160–164), B2.2 (165–169), B2.3 (170–174), B2.4 (175–179), C1.1 (180–184)…</p>
+      ${tests.length ? `<table><tr><th>Fecha</th><th>Tipo</th><th>%</th><th>Nivel</th></tr>${tests.slice().reverse().map((t) => `<tr><td>${t.date}</td><td>${typeName[t.type] || t.type}</td><td>${Math.round(t.pct * 100)}%</td><td><b>${subLevel(t.scale)}</b> · ${t.scale}</td></tr>`).join('')}</table>` : '<p class="muted">Aún no hay exámenes.</p>'}
     </div>
     <div class="card"><h3>Actividad reciente</h3>
       ${state.log.length ? `<table><tr><th>Fecha</th><th>Actividad</th><th>Nota</th></tr>${state.log.slice(-12).reverse().map((e) => `<tr><td>${e.date}</td><td>${(KIND_INFO[e.kind] || { emoji: '' }).emoji} ${esc((KIND_INFO[e.kind] || { label: e.kind }).label)}</td><td>${e.score == null ? '—' : Math.round(e.score * 100) + '%'}</td></tr>`).join('')}</table>` : '<p class="muted">Todavía no has hecho ninguna actividad.</p>'}
