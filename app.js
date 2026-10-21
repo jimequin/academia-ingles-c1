@@ -6,7 +6,7 @@
 
 import { PLACEMENT, LESSONS, UOE, DICTATIONS, LISTENINGS, WRITING_TASKS, SPEAKING_PARTS, VOCAB } from './data.js';
 import { dateKey, parseDate, addDays, daysBetween, buildPlan as buildPlanFor, weekForDate, CHAT_SESSIONS, DEFAULT_SCHEDULE, weeklyMinutes, grammarFocus } from './plan.js';
-import { MODELS, DEFAULT_MODEL, chat, askJson, tutorSystem, writingSystem, WRITING_SCHEMA, EXERCISES_SCHEMA, READING_SCHEMA } from './ai.js';
+import { MODELS, DEFAULT_MODEL, PROVIDERS, GEMINI_MODELS, DEFAULT_GEMINI_MODEL, aiReady, chat, askJson, tutorSystem, writingSystem, WRITING_SCHEMA, EXERCISES_SCHEMA, READING_SCHEMA } from './ai.js';
 
 /* ==========================================================
    1. Estado y guardado
@@ -17,7 +17,7 @@ const STORAGE_KEY = 'academia.v1';
 function freshState() {
   return {
     profile: null, // { name, examDate, startDate, level, schedule }
-    settings: { apiKey: '', model: DEFAULT_MODEL, voiceURI: '', rate: 0.95, autoSpeak: true },
+    settings: { provider: 'gemini', geminiKey: '', geminiModel: DEFAULT_GEMINI_MODEL, apiKey: '', model: DEFAULT_MODEL, voiceURI: '', rate: 0.95, autoSpeak: true },
     log: [], // actividades hechas: { date, kind, score (0-1 o null), minutes, detail }
     tests: [], // test de nivel, evaluaciones y simulacros
     lessons: {}, // id → mejor % en los ejercicios
@@ -279,7 +279,7 @@ function withDone(dp) {
   state.log.forEach((e) => {
     if (e.date >= dp.from && e.date <= dp.to) counts[e.kind] = (counts[e.kind] || 0) + 1;
   });
-  const alias = { lesson2: 'lesson', writing2: 'writing' };
+  const alias = { lesson2: 'lesson', writing2: 'writing', claudeclass: 'tutorlesson' };
   return dp.tasks.map((t) => {
     if (t.kind === 'placement') return { ...t, done: state.tests.some((x) => x.type === 'placement') };
     if (state.manualDone[t.key]) return { ...t, done: true };
@@ -296,7 +296,7 @@ function openKind(kind, week) {
     case 'tutorlesson':
     case 'claudeclass': {
       const l = LESSONS.find((x) => x.id === week.lessons[week.lessons.length - 1]) || LESSONS[0];
-      return state.settings.apiKey ? openTutor('lesson', l.title) : openInClaude(claudePromptFor(kind, week));
+      return aiReady(state.settings) ? openTutor('lesson', l.title) : openInClaude(claudePromptFor(kind, week));
     }
     case 'drill': return startDrill(15);
     case 'writing2': return startWriting(week.writing2);
@@ -308,7 +308,7 @@ function openKind(kind, week) {
     case 'listening': return startListening();
     case 'reading': return startReading();
     case 'writing': return startWriting(week.writing);
-    case 'speaking': return state.settings.apiKey ? openTutor('examiner', week.speaking) : openInClaude(claudePromptFor('speaking', week));
+    case 'speaking': return aiReady(state.settings) ? openTutor('examiner', week.speaking) : openInClaude(claudePromptFor('speaking', week));
     case 'eval': return startEvaluation();
     case 'mock': return startMock();
     case 'placement': return startPlacement();
@@ -641,14 +641,14 @@ function renderHoy() {
     }
     return `${head}<div class="task ${t.done ? 'done' : ''}" data-i="${i}">
       <button class="check" aria-label="Marcar como hecha">${t.done ? '✓' : ''}</button>
-      <div class="task-body"><div class="task-label">${t.emoji || ''} ${esc(t.label)}</div>${t.minutes ? `<div class="muted small">~${t.minutes} min${CLAUDE_KINDS.includes(t.kind) && !state.settings.apiKey ? ' · en Claude: márcala al terminar' : ''}</div>` : ''}</div>
+      <div class="task-body"><div class="task-label">${t.emoji || ''} ${esc(t.label)}</div>${t.minutes ? `<div class="muted small">~${t.minutes} min${CLAUDE_KINDS.includes(t.kind) && !aiReady(state.settings) ? ' · en Claude: márcala al terminar' : ''}</div>` : ''}</div>
       ${t.action ? '<button class="btn small dark go">Empezar</button>' : ''}
     </div>`;
   }).join('');
 
   const title = dp.weekend ? 'Tu fin de semana' : dp.goal ? 'Tu clase de hoy' : 'Hoy';
   const goalHtml = dp.goal ? `<div style="margin:6px 0 4px"><div class="spread small"><span>${dp.weekend ? 'Llevas este fin de semana' : 'Llevas hoy'}: <b>${fmtMin(studied)}</b></span><span class="muted">objetivo ${fmtMin(dp.goal)}</span></div><div class="bar"><div style="width:${pct}%"></div></div></div>
-    ${dp.weekend ? '<p class="muted small" style="margin:6px 0 0">Elige tú cuándo: haz la clase y los ejercicios a la hora que mejor te venga, el sábado o el domingo. Cuando acabes la lista, sigue con los ejercicios extra de abajo hasta llegar a tu objetivo.</p>' : ''}` : '<p class="muted small" style="margin:6px 0 0">Hoy no tienes clase. Si te apetece, escribe <b>hello there</b> en tu proyecto de Claude para conversar un rato (mira la pestaña Chat).</p>';
+    ${dp.weekend ? '<p class="muted small" style="margin:6px 0 0">Elige tú cuándo: haz la clase y los ejercicios a la hora que mejor te venga, el sábado o el domingo. Cuando acabes la lista, sigue con los ejercicios extra de abajo hasta llegar a tu objetivo.</p>' : ''}` : '<p class="muted small" style="margin:6px 0 0">Hoy no tienes clase. Si te apetece, ve a la pestaña <b>Chat</b> y escribe <b>hello there</b> al profesor para conversar un rato.</p>';
 
   const hello = today.getHours() < 14 ? 'Good morning' : today.getHours() < 21 ? 'Good afternoon' : 'Good evening';
   el.innerHTML = `
@@ -673,7 +673,7 @@ function renderHoy() {
     <div class="card">
       <h3>¿Te sobra tiempo?</h3>
       <div class="grid2">
-        <button class="tile" data-go="tutor"><span class="emoji">💬</span><b>Conversar</b><span class="muted">Tema de hoy en Claude (gratis)</span></button>
+        <button class="tile" data-go="tutor"><span class="emoji">💬</span><b>Conversar</b><span class="muted">Tema de hoy con el profesor</span></button>
         <button class="tile" data-go="vocab"><span class="emoji">🃏</span><b>Tarjetas</b><span class="muted">${dueCards().length} pendientes de repaso</span></button>
       </div>
     </div>`;
@@ -690,7 +690,7 @@ function renderHoy() {
     if (go) go.onclick = t.action;
   });
   $$('[data-extra]', el).forEach((b) => (b.onclick = EXTRA_ACTIONS[b.dataset.extra]));
-  $('[data-go="tutor"]', el).onclick = () => show('chat');
+  $('[data-go="tutor"]', el).onclick = () => (aiReady(state.settings) ? openTutor('free') : show('chat'));
   const dp2 = $('#doPlacement', el);
   if (dp2) dp2.onclick = () => startPlacement();
   $('[data-go="vocab"]', el).onclick = () => startVocab();
@@ -704,15 +704,18 @@ const EXTRA_ACTIONS = {
   dictation: () => startDictation(),
   writing: () => startWriting(),
   vocab: () => startVocab(),
-  free: () => openInClaude('hello there'),
-  exam: () => openInClaude(`Speaking Part ${Math.floor(Math.random() * 4) + 1}. Let's start.`)
+  free: () => (aiReady(state.settings) ? openTutor('free') : openInClaude('hello there')),
+  exam: () => {
+    const n = Math.floor(Math.random() * 4);
+    return aiReady(state.settings) ? openTutor('examiner', SPEAKING_PARTS[n].id) : openInClaude(`Speaking Part ${n + 1}. Let's start.`);
+  }
 };
 function extraExercisesCard() {
   const items = [
     ['drill', '🧠', 'Sesión de gramática (20 preguntas)'], ['uoe', '🧩', 'Use of English (parte al azar)'],
     ['listening', '👂', 'Listening'], ['dictation', '🎧', 'Otro dictado'],
-    ['writing', '✍️', 'Otro writing (corrígelo en Claude)'], ['vocab', '🃏', 'Tarjetas de vocabulario'],
-    ['free', '💬', 'Conversación en Claude'], ['exam', '🎓', 'Speaking en Claude (usa el modo voz)']
+    ['writing', '✍️', 'Otro writing'], ['vocab', '🃏', 'Tarjetas de vocabulario'],
+    ['free', '💬', 'Conversación con el profesor'], ['exam', '🎓', 'Simulacro de speaking']
   ];
   return `<div class="card"><h3>🔁 Ejercicios extra (ilimitados)</h3><p class="muted small">Para seguir hasta completar tus horas del fin de semana. Las preguntas se mezclan cada vez y priorizan las que no has visto.</p>
     <div class="grid2">${items.map(([id, e, t]) => `<button class="tile" data-extra="${id}"><span class="emoji">${e}</span><b>${t}</b></button>`).join('')}</div></div>`;
@@ -835,7 +838,7 @@ function openLesson(id) {
 
 // Genera 6 ejercicios nuevos con la IA sobre un tema
 async function aiExercises(container, topic, kind) {
-  if (!state.settings.apiKey) { needKey(container); return; }
+  if (!aiReady(state.settings)) { needKey(container); return; }
   container.innerHTML = '<div class="card"><p class="muted">✨ Preparando ejercicios nuevos…</p></div>';
   try {
     const data = await askJson(state.settings, {
@@ -860,7 +863,7 @@ async function aiExercises(container, topic, kind) {
 }
 
 function needKey(container) {
-  container.innerHTML = `<div class="notice warn">Esta parte usa la IA (Claude). Añade tu clave de API en <b>⚙️ Ajustes</b> para activarla. <button class="btn small" id="openSettingsInline">Abrir ajustes</button></div>`;
+  container.innerHTML = `<div class="notice warn">Esta parte usa el profesor IA. Actívalo gratis con una clave de Gemini en <b>⚙️ Ajustes</b> (2 minutos). <button class="btn small" id="openSettingsInline">Abrir ajustes</button></div>`;
   $('#openSettingsInline', container).onclick = openSettings;
 }
 
@@ -1022,7 +1025,7 @@ function startListening(given) {
   });
   $('#aiListen', body).onclick = async () => {
     const btn = $('#aiListen', body);
-    if (!state.settings.apiKey) { needKey($('#transcript', body)); return; }
+    if (!aiReady(state.settings)) { needKey($('#transcript', body)); return; }
     btn.disabled = true;
     btn.textContent = '✨ Preparando…';
     try {
@@ -1056,7 +1059,7 @@ async function aiPassage(kind) {
 
 function startReading() {
   const body = activity('Reading', 'practica');
-  if (!state.settings.apiKey) {
+  if (!aiReady(state.settings)) {
     body.innerHTML = `<div class="card"><h3>Reading gratis en Claude</h3>
       <p class="muted">Claude te prepara un texto nuevo tipo examen con sus preguntas y luego te corrige. Pulsa el botón, pega el mensaje en tu proyecto y responde allí.</p>
       <button class="btn primary block" id="readClaude">Abrir reading en Claude</button>
@@ -1105,8 +1108,8 @@ function startWriting(taskId) {
       <div class="spread"><span>Palabras: <span class="wordcount" id="wc">0</span></span><span class="row"><span class="timer" id="timer">45:00</span><button class="btn small" id="timerBtn">▶ Cronómetro</button></span></div>
       <textarea id="wtext" style="min-height:280px;margin-top:8px" placeholder="Escribe aquí tu texto en inglés…">${esc(draft)}</textarea>
       <p class="muted small">El borrador se guarda solo mientras escribes.</p>
-      <button class="btn primary block" id="freeCorrect">Corregir gratis en Claude</button>
-      <button class="btn block" id="correct" style="margin-top:6px">Corregir aquí con la API (de pago)</button>
+      <button class="btn primary block" id="correct">Corregir con el profesor IA (criterios Cambridge)</button>
+      <button class="btn block" id="freeCorrect" style="margin-top:6px">Corregir en la app de Claude</button>
       <button class="btn block ghost" id="self" style="margin-top:6px">Autoevaluarme sin IA</button>
     </div><div id="wres"></div>`;
   const ta = $('#wtext', body);
@@ -1153,7 +1156,7 @@ function startWriting(taskId) {
   $('#correct', body).onclick = async () => {
     const text = ta.value.trim();
     if (countWords(text) < 80) { toast('Escribe al menos 80 palabras antes de corregir'); return; }
-    if (!state.settings.apiKey) { needKey($('#wres', body)); return; }
+    if (!aiReady(state.settings)) { needKey($('#wres', body)); return; }
     const btn = $('#correct', body);
     btn.disabled = true;
     btn.textContent = 'Corrigiendo… (30–60 s)';
@@ -1174,7 +1177,7 @@ function startWriting(taskId) {
       $('#wres', body).innerHTML = `<div class="notice warn">${esc(e.message)}</div>`;
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Corregir con criterios Cambridge (IA)';
+      btn.textContent = 'Corregir con el profesor IA (criterios Cambridge)';
     }
   };
 }
@@ -1477,10 +1480,18 @@ function renderChat() {
     </div>
 
     <div class="card">
-      <h3>💬 Conversación con Claude <span class="tag ok">gratis</span></h3>
+      <h3>🤖 Profesor IA en la app ${(state.settings.provider || 'gemini') === 'gemini' ? '<span class="tag ok">gratis con Gemini</span>' : '<span class="tag">Claude</span>'}</h3>
+      <p>Tema de hoy: <b>${esc(topicOfDay(today))}</b></p>
+      <p class="muted small">Escribe <b>hello there</b> para conversar y <b>bye</b> para terminar: te corrige todo lo que digas mal. También te da clases, hace de examinador de Speaking y corrige frases.</p>
+      <div id="chatKeyNotice"></div>
+      <button class="btn primary block" id="inAppTutor">Hablar con el profesor</button>
+    </div>
+
+    <div class="card">
+      <h3>💬 Alternativa: conversar en la app de Claude <span class="tag ok">gratis</span></h3>
       <p>Tema de hoy: <b>${esc(topicOfDay(today))}</b></p>
       <p class="muted small">Se hace en la app de Claude, con tu cuenta (sin pagar la API). Escribe <b>hello there</b> para empezar y <b>bye</b> para terminar: te corrige todo lo que digas mal. En el móvil puedes usar el <b>modo voz</b> de Claude para practicar hablando.</p>
-      ${project ? '' : `<details class="week" open><summary>Configúralo una vez (5 min)</summary>
+      ${project ? '' : `<details class="week"><summary>Configúralo una vez (5 min)</summary>
         <ol class="small" style="padding-left:18px;margin:8px 0 0">
           <li>Abre <a href="https://claude.ai/projects" target="_blank" rel="noopener">claude.ai/projects</a> → <b>Create project</b> → llámalo <i>English teacher</i>.</li>
           <li>Pulsa el botón de abajo para copiar las instrucciones y pégalas en <b>Project instructions</b> del proyecto.</li>
@@ -1490,19 +1501,14 @@ function renderChat() {
         <button class="btn small" id="copyInstr">📋 Copiar instrucciones del proyecto</button>
         <button class="btn primary" id="goClaude">Abrir Claude y decir hello there</button>
       </div>
-    </div>
-
-    <div class="card">
-      <h3>🤖 Tutor dentro de la app <span class="tag">opcional · de pago</span></h3>
-      <p class="muted small">Usa la API de Claude con tu propia clave (se paga aparte por uso). No hace falta: con el proyecto de Claude tienes lo mismo gratis.</p>
-      <button class="btn small" id="paidTutor">Abrir tutor de la app</button>
     </div>`;
 
   $$('[data-drill]', el).forEach((b) => (b.onclick = () => startDrill(Number(b.dataset.drill))));
   $('#icsBtn', el).onclick = downloadIcs;
   $('#copyInstr', el).onclick = () => copyText(projectInstructions(), 'Instrucciones copiadas. Pégalas en el proyecto de Claude.');
   $('#goClaude', el).onclick = () => openInClaude('hello there');
-  $('#paidTutor', el).onclick = () => openTutor('free');
+  $('#inAppTutor', el).onclick = () => openTutor('free');
+  if (!aiReady(state.settings)) needKey($('#chatKeyNotice', el));
 }
 
 /* ---------- Sesión de gramática en formato chat ---------- */
@@ -1711,6 +1717,10 @@ function chatKey() {
   return tutorMode + (tutorExtra ? ':' + tutorExtra : '');
 }
 
+const simple = (t) => String(t || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+const isHello = (t) => simple(t).startsWith('hello there');
+const isBye = (t) => ['bye', 'bye bye', 'goodbye', 'see you'].includes(simple(t)) || simple(t).startsWith('bye ');
+
 function openTutor(mode, extra) {
   tutorMode = mode;
   tutorExtra = extra || '';
@@ -1724,6 +1734,8 @@ function openTutor(mode, extra) {
 function renderTutor() {
   const el = $('#view-tutor');
   const msgs = state.chats[chatKey()] || [];
+  const free = tutorMode === 'free';
+  const showInput = msgs.length > 0 || free;
   const lessonOpts = LESSONS.map((l) => `<option value="${esc(l.title)}" ${tutorExtra === l.title ? 'selected' : ''}>${esc(l.title)}</option>`).join('');
   const spOpts = SPEAKING_PARTS.map((s) => `<option value="${s.id}" ${tutorExtra === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
 
@@ -1743,18 +1755,20 @@ function renderTutor() {
         <button class="btn small ghost" id="newChat">🗑️ Nueva conversación</button>
       </div>
     </div>
-    ${state.settings.apiKey ? '' : '<div id="tutorKey"></div>'}
-    <div class="chat" id="chat">${msgs.length ? msgs.map(renderMsg).join('') : `<p class="muted">Pulsa <b>Empezar</b> y el profesor abrirá la sesión. Puedes escribir o hablar con el micrófono 🎤 (Chrome / Safari).</p>`}</div>
+    ${aiReady(state.settings) ? '' : '<div id="tutorKey"></div>'}
+    <div class="chat" id="chat">${msgs.length ? msgs.map(renderMsg).join('') : free
+      ? `<p class="muted">Tema de hoy: <b>${esc(topicOfDay())}</b>. Escribe <b>hello there</b> para empezar y <b>bye</b> para terminar. Te corregiré todo lo que digas mal. Puedes escribir o hablar con el micrófono 🎤.</p>`
+      : `<p class="muted">Pulsa <b>Empezar</b> y el profesor abrirá la sesión. Puedes escribir o hablar con el micrófono 🎤 (Chrome / Safari).</p>`}</div>
     <div class="composer">
-      ${msgs.length ? '' : '<button class="btn primary block" id="startChat" style="margin-bottom:8px">Empezar</button>'}
-      <textarea id="tinput" placeholder="Write in English…" ${msgs.length ? '' : 'class="hidden"'}></textarea>
+      ${msgs.length || free ? '' : '<button class="btn primary block" id="startChat" style="margin-bottom:8px">Empezar</button>'}
+      <textarea id="tinput" placeholder="${free && !msgs.length ? 'hello there' : 'Write in English…'}" ${showInput ? '' : 'class="hidden"'}></textarea>
       <div class="row" style="margin-top:6px">
-        <button class="btn mic ${msgs.length ? '' : 'hidden'}" id="mic" ${Recognition ? '' : 'disabled title="Tu navegador no permite dictado por voz"'}>🎤</button>
-        <button class="btn dark ${msgs.length ? '' : 'hidden'}" id="send" style="flex:1">Enviar</button>
+        <button class="btn mic ${showInput ? '' : 'hidden'}" id="mic" ${Recognition ? '' : 'disabled title="Tu navegador no permite dictado por voz"'}>🎤</button>
+        <button class="btn dark ${showInput ? '' : 'hidden'}" id="send" style="flex:1">Enviar</button>
       </div>
     </div>`;
 
-  if (!state.settings.apiKey) needKey($('#tutorKey', el));
+  if (!aiReady(state.settings)) needKey($('#tutorKey', el));
   $('#tmode', el).onchange = (e) => {
     tutorMode = e.target.value;
     tutorExtra = tutorMode === 'lesson' ? LESSONS[0].title : tutorMode === 'examiner' ? SPEAKING_PARTS[0].id : '';
@@ -1801,8 +1815,14 @@ function renderMsg(m, i) {
 
 async function sendTutor(text, hidden = false) {
   if (busy) return;
-  if (!state.settings.apiKey) { toast('Añade tu clave de API en ⚙️ Ajustes'); return; }
+  if (!aiReady(state.settings)) { toast('Activa el profesor IA en ⚙️ Ajustes'); return; }
   const key = chatKey();
+  state.chatsEnded = state.chatsEnded || {};
+  // "hello there" (o escribir tras un "bye") empieza una conversación nueva
+  if (tutorMode === 'free' && (isHello(text) || state.chatsEnded[key])) {
+    delete state.chats[key];
+    delete state.chatsEnded[key];
+  }
   const msgs = state.chats[key] || (state.chats[key] = []);
   msgs.push({ role: 'user', content: text, hidden });
   save();
@@ -1818,7 +1838,7 @@ async function sendTutor(text, hidden = false) {
   // Solo mandamos los últimos 30 mensajes para que cada respuesta no salga cara
   const history = msgs.slice(-30).map((m) => ({ role: m.role, content: m.content }));
   while (history.length && history[0].role !== 'user') history.shift();
-  const extra = tutorMode === 'examiner' ? (SPEAKING_PARTS.find((s) => s.id === tutorExtra) || SPEAKING_PARTS[0]).name : tutorExtra;
+  const extra = tutorMode === 'examiner' ? (SPEAKING_PARTS.find((s) => s.id === tutorExtra) || SPEAKING_PARTS[0]).name : tutorMode === 'free' ? topicOfDay() : tutorExtra;
   try {
     const reply = await chat(state.settings, {
       system: tutorSystem(state.profile || {}, tutorMode, extra),
@@ -1999,10 +2019,19 @@ function openSettings() {
     <label class="row small" style="margin-top:10px"><input type="checkbox" id="sWa" ${sch.chat ? 'checked' : ''}> Sesiones de gramática en el Chat (L, M, J 7:40 · X, V 8:00)</label>
     <label class="field" for="sProject">Enlace a tu proyecto de Claude (para conversar gratis)</label><input type="text" id="sProject" value="${esc(s.claudeProjectUrl || '')}" placeholder="https://claude.ai/project/...">
 
-    <h3 style="margin-top:20px">🤖 Inteligencia artificial (Claude)</h3>
-    <p class="muted small">El tutor, la corrección de writing y los ejercicios nuevos usan la API de Claude. Crea una clave en <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> (se paga por uso). La clave se guarda solo en este navegador y nunca se sube a GitHub.</p>
-    <label class="field" for="sKey">Clave de API</label><input type="password" id="sKey" value="${esc(s.apiKey)}" placeholder="sk-ant-..." autocomplete="off">
-    <label class="field" for="sModel">Modelo</label><select id="sModel">${MODELS.map((m) => `<option value="${m.id}" ${s.model === m.id ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select>
+    <h3 style="margin-top:20px">🤖 Profesor IA (tutor, correcciones, ejercicios nuevos)</h3>
+    <label class="field" for="sProvider">¿Qué IA usa el profesor?</label><select id="sProvider">${PROVIDERS.map((x) => `<option value="${x.id}" ${(s.provider || 'gemini') === x.id ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select>
+    <div id="pGemini" class="${(s.provider || 'gemini') === 'gemini' ? '' : 'hidden'}">
+      <p class="muted small" style="margin-top:8px">Gratis: entra en <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> con tu cuenta de Google → <b>Create API key</b> → cópiala y pégala aquí. Tiene un límite de mensajes al día. ⚠️ En el plan gratis Google puede usar las conversaciones para mejorar sus modelos: no escribas datos personales sensibles.</p>
+      <label class="field" for="sGKey">Clave de Gemini</label><input type="password" id="sGKey" value="${esc(s.geminiKey || '')}" placeholder="AIza..." autocomplete="off">
+      <label class="field" for="sGModel">Modelo</label><select id="sGModel">${GEMINI_MODELS.map((m) => `<option value="${m.id}" ${(s.geminiModel || DEFAULT_GEMINI_MODEL) === m.id ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select>
+    </div>
+    <div id="pClaude" class="${s.provider === 'claude' ? '' : 'hidden'}">
+      <p class="muted small" style="margin-top:8px">De pago por uso: crea una clave en <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> y añade saldo.</p>
+      <label class="field" for="sKey">Clave de API de Claude</label><input type="password" id="sKey" value="${esc(s.apiKey)}" placeholder="sk-ant-..." autocomplete="off">
+      <label class="field" for="sModel">Modelo</label><select id="sModel">${MODELS.map((m) => `<option value="${m.id}" ${s.model === m.id ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select>
+    </div>
+    <p class="muted small">Las claves se guardan solo en este navegador y nunca se suben a GitHub.</p>
 
     <h3 style="margin-top:20px">🔊 Voz</h3>
     <label class="field" for="sVoice">Voz en inglés</label><select id="sVoice"><option value="">Automática (británica si hay)</option>${voices.map((v) => `<option value="${esc(v.voiceURI)}" ${s.voiceURI === v.voiceURI ? 'selected' : ''}>${esc(v.name)} (${esc(v.lang)})</option>`).join('')}</select>
@@ -2010,12 +2039,16 @@ function openSettings() {
     <button class="btn small" id="testVoice">🔊 Probar</button>
 
     <h3 style="margin-top:20px">💾 Copia de seguridad</h3>
-    <p class="muted small">Tus datos viven en este navegador. Descarga una copia de vez en cuando (la clave de API no se incluye).</p>
+    <p class="muted small">Tus datos viven en este navegador. Descarga una copia de vez en cuando (las claves de la IA no se incluyen).</p>
     <div class="row"><button class="btn small" id="exportBtn">⬇️ Exportar</button><label class="btn small">⬆️ Importar<input type="file" id="importFile" accept="application/json" class="hidden"></label><button class="btn small ghost" id="resetBtn">Borrar todo</button></div>
 
     <button class="btn primary block" id="saveSet" style="margin-top:20px">Guardar</button>`);
 
   $('#closeSet').onclick = closeModal;
+  $('#sProvider').onchange = (e) => {
+    $('#pGemini').classList.toggle('hidden', e.target.value !== 'gemini');
+    $('#pClaude').classList.toggle('hidden', e.target.value !== 'claude');
+  };
   $('#sRate').oninput = (e) => ($('#rateVal').textContent = e.target.value);
   $('#testVoice').onclick = () => {
     state.settings.voiceURI = $('#sVoice').value;
@@ -2034,6 +2067,9 @@ function openSettings() {
       };
     }
     state.settings.apiKey = $('#sKey').value.trim();
+    state.settings.provider = $('#sProvider').value;
+    state.settings.geminiKey = $('#sGKey').value.trim();
+    state.settings.geminiModel = $('#sGModel').value;
     state.settings.claudeProjectUrl = $('#sProject').value.trim();
     state.settings.model = $('#sModel').value;
     state.settings.voiceURI = $('#sVoice').value;
@@ -2044,7 +2080,7 @@ function openSettings() {
     show(currentView === 'actividad' ? 'hoy' : currentView);
   };
   $('#exportBtn').onclick = () => {
-    const copy = { ...state, settings: { ...state.settings, apiKey: '' } };
+    const copy = { ...state, settings: { ...state.settings, apiKey: '', geminiKey: '' } };
     const blob = new Blob([JSON.stringify(copy, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -2058,8 +2094,8 @@ function openSettings() {
     file.text().then((txt) => {
       const data = JSON.parse(txt);
       if (!data || !('log' in data)) throw new Error('formato');
-      const key = state.settings.apiKey;
-      state = { ...freshState(), ...data, settings: { ...freshState().settings, ...(data.settings || {}), apiKey: key } };
+      const keys = { apiKey: state.settings.apiKey, geminiKey: state.settings.geminiKey };
+      state = { ...freshState(), ...data, settings: { ...freshState().settings, ...(data.settings || {}), ...keys } };
       save();
       closeModal();
       toast('Copia importada');
