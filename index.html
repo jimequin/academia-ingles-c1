@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Academia C1</title>
+<meta name="description" content="Tu academia de inglés personal para preparar el Cambridge C1 Advanced.">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#14213D">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Academia C1">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Academia de inglés</p>
+      <h1 class="brand">Road to <span>C1</span></h1>
+    </div>
+    <div class="topbar-right">
+      <span id="countdownChip" class="chip"></span>
+      <button id="settingsBtn" class="icon-btn" aria-label="Ajustes">⚙️</button>
+    </div>
+  </header>
+
+  <!-- Cada <section> es una "pantalla". app.js rellena su contenido. -->
+  <main>
+    <section id="view-hoy" class="view"></section>
+    <section id="view-plan" class="view hidden"></section>
+    <section id="view-clases" class="view hidden"></section>
+    <section id="view-practica" class="view hidden"></section>
+    <section id="view-tutor" class="view hidden"></section>
+    <section id="view-progreso" class="view hidden"></section>
+    <!-- Pantalla temporal para una actividad concreta (una clase, un test...) -->
+    <section id="view-actividad" class="view hidden"></section>
+  </main>
+
+  <nav class="tabbar" aria-label="Secciones">
+    <button data-view="hoy" class="active"><span>🏠</span>Hoy</button>
+    <button data-view="plan"><span>🗓️</span>Plan</button>
+    <button data-view="clases"><span>📚</span>Clases</button>
+    <button data-view="practica"><span>✍️</span>Práctica</button>
+    <button data-view="tutor"><span>💬</span>Tutor</button>
+    <button data-view="progreso"><span>📈</span>Progreso</button>
+  </nav>
+</div>
+
+<!-- Ventana emergente reutilizable (bienvenida, ajustes...) -->
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="modal-card" id="modalCard"></div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script type="module" src="app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js'));
+  }
+</script>
+</body>
+</html>
