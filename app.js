@@ -193,9 +193,6 @@ function dayPlan(d) {
   const key = dateKey(d);
   const empty = { tasks: [], from: key, to: key, weekend: false, goal: 0 };
   if (!plan) return empty;
-  if (!state.tests.some((t) => t.type === 'placement')) {
-    return { ...empty, tasks: [{ kind: 'placement', label: 'Haz el test de nivel', minutes: 20, emoji: '🎯', action: () => startPlacement(), key: key + ':placement' }] };
-  }
   const week = weekForDate(plan, d);
   if (!week) return empty;
   if (key === state.profile.examDate) {
@@ -671,6 +668,7 @@ function renderHoy() {
       <div class="tasks">${rows || '<p class="muted">No hay tareas para hoy.</p>'}</div>
     </div>
     ${dp.weekend ? extraExercisesCard() : ''}
+    ${state.tests.some((t) => t.type === 'placement') ? '' : '<div class="notice warn">🎯 Aún no has hecho el <b>test de nivel</b>. Mientras tanto el plan supone un nivel B2. <button class="btn small dark" id="doPlacement" style="margin-top:6px">Hacer el test ahora (15 min)</button></div>'}
     ${hoursNotice(plan)}
     <div class="card">
       <h3>¿Te sobra tiempo?</h3>
@@ -693,6 +691,8 @@ function renderHoy() {
   });
   $$('[data-extra]', el).forEach((b) => (b.onclick = EXTRA_ACTIONS[b.dataset.extra]));
   $('[data-go="tutor"]', el).onclick = () => show('chat');
+  const dp2 = $('#doPlacement', el);
+  if (dp2) dp2.onclick = () => startPlacement();
   $('[data-go="vocab"]', el).onclick = () => startVocab();
 }
 
@@ -1962,8 +1962,11 @@ function onboarding() {
       <label class="field" for="obDate">Fecha de tu examen Cambridge C1 Advanced</label><input type="date" id="obDate" value="${defaultExam}" required>
       <p class="muted small">Consulta la fecha exacta en tu centro examinador; la puedes cambiar después.</p>
       <div class="notice" style="margin-top:12px"><b>Tu horario:</b> ${esc(scheduleSummary(DEFAULT_SCHEDULE))}<br><span class="muted small">Lo puedes cambiar cuando quieras en ⚙️ Ajustes.</span></div>
-      <button class="btn primary block" style="margin-top:16px">Hacer el test de nivel</button>
+      <button class="btn primary block" style="margin-top:16px" data-then="test">Hacer el test de nivel</button>
+      <button class="btn block ghost" style="margin-top:6px" data-then="explore">Ver la app primero (el test, luego)</button>
     </form>`);
+  let then = 'test';
+  $$('#obForm [data-then]').forEach((b) => (b.onclick = () => { then = b.dataset.then; }));
   $('#obForm').onsubmit = (e) => {
     e.preventDefault();
     state.profile = {
@@ -1976,7 +1979,7 @@ function onboarding() {
     save();
     closeModal();
     show('hoy');
-    startPlacement();
+    if (then === 'test') startPlacement();
   };
 }
 
