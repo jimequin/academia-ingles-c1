@@ -54,25 +54,6 @@ python3 -m http.server 8000
 Y abre <http://localhost:8000>. (Hace falta un servidor local porque la app usa
 módulos de JavaScript, que el navegador no carga abriendo el archivo con doble clic.)
 
-## Pasarla a su propio repositorio de GitHub
-
-Este proyecto es independiente: no comparte nada con el resto del repositorio
-donde se creó. Para tenerlo en su propio repo (`jimequin/academia-ingles-c1`):
-
-1. En github.com pulsa **New repository**, ponle de nombre `academia-ingles-c1`
-   y créalo **vacío** (sin README).
-2. Desde la carpeta del proyecto:
-
-```bash
-cd academia-ingles-c1
-git init
-git add .
-git commit -m "Academia C1: primera versión"
-git branch -M main
-git remote add origin https://github.com/jimequin/academia-ingles-c1.git
-git push -u origin main
-```
-
 ## Publicarla gratis con GitHub Pages (para usarla en el móvil)
 
 1. En el repo: **Settings → Pages**.
@@ -88,7 +69,7 @@ En iPhone ábrela en Safari → compartir → *Añadir a pantalla de inicio*.
 ## Estructura
 
 ```
-academia-ingles/
+academia-ingles-c1/
 ├── index.html     → esqueleto de la app (pestañas y ventanas)
 ├── styles.css     → diseño (modo claro y oscuro)
 ├── app.js         → toda la lógica: plan, ejercicios, tests, tutor, progreso
